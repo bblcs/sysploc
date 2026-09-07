@@ -1,0 +1,4 @@
+(lang dune 3.24)
+
+(package
+ (name sysploc))
