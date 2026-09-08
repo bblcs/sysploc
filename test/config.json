@@ -1,5 +1,5 @@
 {
-  "build": "",
+  "build": "opam exec -- dune build",
   "default_grammar": "1",
   "versions": [1, 2, 3, 4, 5],
   "out_dir": "{root}/test/build",
