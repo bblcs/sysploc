@@ -1,11 +1,11 @@
 {
-  "build": "",
+  "build": "opam exec -- dune build",
   "default_grammar": "1",
   "versions": [1, 2, 3, 4, 5],
   "out_dir": "{root}/test/build",
   "stages": {
     "lexer": {
-      "cmd": ["{root}/build/splc", "-g", "{grammar}", "-t", "{tokens_in}", "{input}"],
+      "cmd": ["{root}/_build/default/src/driver/main.exe", "-t", "{tokens_in}", "{input}"],
       "out": "{tokens_out}",
       "preprocess": [
         {"type": "json", "keep": ["kind", "line", "column"]}
