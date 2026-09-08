@@ -1,4 +1,4 @@
-type token_type =
+type kind =
   | LParen
   | RParen
   | Assign
@@ -16,5 +16,32 @@ type token_type =
   | EOF
 [@@deriving show]
 
-type position = { line : int; col : int } [@@deriving show]
-type token = { kind : token_type; pos : position } [@@deriving show]
+(* makes a kind, value pair for json suite *)
+let kind_to_json_pair = function
+  | LParen -> ("LPAREN", "(")
+  | RParen -> ("RPAREN", ")")
+  | Assign -> ("EQ", "=")
+  | Semi -> ("SEMI", ";")
+  | Plus -> ("PLUS", "+")
+  | Minus -> ("MINUS", "-")
+  | Mult -> ("MULT", "*")
+  | Div -> ("DIV", "/")
+  | Val -> ("VAL", "val")
+  | Var -> ("VAR", "var")
+  | Ret -> ("RETURN", "return")
+  | Num n -> ("INT", string_of_int n)
+  | Id s -> ("IDENT", s)
+  | Err err -> ("ERROR", err)
+  | EOF -> ("EOF", "")
+
+type t = { kind : kind; pos : Loc.pos } [@@deriving show]
+
+let to_yojson token =
+  let kind, value = kind_to_json_pair token.kind in
+  `Assoc
+    [
+      ("kind", `String kind);
+      ("value", `String value);
+      ("line", `Int (token.pos.line + 1));
+      ("column", `Int (token.pos.col + 1));
+    ]
