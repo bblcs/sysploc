@@ -19,6 +19,7 @@ let eat lex =
       in
       (Some c, { source = next_seq; pos = next_pos })
 
+let advance lex = snd (eat lex)
 let is_whitespace = function ' ' | '\t' | '\r' | '\n' -> true | _ -> false
 
 let rec skip_whitespace lex =
@@ -49,7 +50,7 @@ let rec read_sym acc lex =
   match peek lex with
   | None -> (acc, lex)
   | Some c ->
-      if is_id_char c then read_sym (c :: acc) (snd (eat lex)) else (acc, lex)
+      if is_id_char c then read_sym (c :: acc) (advance lex) else (acc, lex)
 
 let lex_sym lex =
   let s_list, new_lex = read_sym [] lex in
@@ -62,12 +63,24 @@ let lex_sym lex =
 let rec skip_line_comment lex =
   match peek lex with
   | None -> lex
-  | Some '\n' -> snd (eat lex)
-  | Some _ -> skip_line_comment (snd (eat lex))
+  | Some '\n' -> advance lex
+  | Some _ -> skip_line_comment (advance lex)
+
+type block_comment = Closed | Unclosed
+
+let rec skip_block_comment lex =
+  match peek lex with
+  | None -> (Unclosed, lex)
+  | Some '*' -> (
+      let _, after_star = eat lex in
+      match peek after_star with
+      | Some '/' -> (Closed, advance after_star)
+      | _ -> skip_block_comment after_star)
+  | Some _ -> skip_block_comment (advance lex)
 
 let rec next lex =
   let skipped = skip_whitespace lex in
-  let yield typ ?(next_lex = snd (eat skipped)) () =
+  let yield typ ?(next_lex = advance skipped) () =
     ({ kind = typ; pos = skipped.pos }, next_lex)
   in
   match peek skipped with
@@ -82,9 +95,17 @@ let rec next lex =
       | '-' -> yield Minus ()
       | '*' -> yield Mult ()
       | '/' -> (
-          let next_char, _ = eat skipped in
-          match next_char with
-          | Some c when c = '/' -> next (skip_line_comment skipped)
+          let _, post_slash_lex = eat skipped in
+          match peek post_slash_lex with
+          | Some '/' -> next (skip_line_comment skipped)
+          | Some '*' -> (
+              let comment, new_lex =
+                skip_block_comment (advance post_slash_lex)
+              in
+              match comment with
+              | Unclosed ->
+                  yield (Err "Unclosed block comment") ~next_lex:new_lex ()
+              | Closed -> next new_lex)
           | _ -> yield Div ())
       | c when is_numeric c ->
           let n, new_lex = lex_num skipped in
