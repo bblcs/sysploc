@@ -112,4 +112,4 @@ let rec next lex =
   | Some c when is_id_char c ->
       let sym, new_lex = lex_sym skipped in
       yield sym ~next_lex:new_lex ()
-  | Some _ -> yield (Token.Err "unknown character") ()
+  | Some c -> yield (Token.ErrInvalidChar c) ()

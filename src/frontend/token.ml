@@ -13,6 +13,7 @@ type kind =
   | Num of int
   | Id of string
   | Err of string
+  | ErrInvalidChar of char
   | EOF
 [@@deriving show]
 
@@ -32,6 +33,7 @@ let kind_to_json_pair = function
   | Num n -> ("INT", string_of_int n)
   | Id s -> ("IDENT", s)
   | Err err -> ("ERROR", err)
+  | ErrInvalidChar c -> ("ERROR", String.make 1 c)
   | EOF -> ("EOF", "")
 
 type t = { kind : kind; pos : Loc.pos } [@@deriving show]
@@ -45,3 +47,6 @@ let to_yojson token =
       ("line", `Int (token.pos.line + 1));
       ("column", `Int (token.pos.col + 1));
     ]
+
+let is_error tok =
+  match tok.kind with Err _ | ErrInvalidChar _ -> true | _ -> false
