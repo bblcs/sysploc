@@ -12,7 +12,7 @@
       ]
     },
     "parser": {
-      "cmd": ["{root}/build/splc", "-g", "{grammar}", "-a", "{ast_in}", "{input}"],
+      "cmd": ["{root}/build/splc", "-a", "{ast_in}", "{input}"],
       "out": "{ast_out}",
       "preprocess": [
         {"type": "json", "keep": ["kind"]}
