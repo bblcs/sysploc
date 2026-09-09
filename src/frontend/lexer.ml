@@ -23,21 +23,19 @@ let is_whitespace = function ' ' | '\t' | '\r' | '\n' -> true | _ -> false
 
 let rec skip_whitespace lex =
   match peek lex with
-  | None -> lex
-  | Some c -> if is_whitespace c then skip_whitespace (snd (eat lex)) else lex
+  | Some c when is_whitespace c -> skip_whitespace (advance lex)
+  | _ -> lex
 
 let is_numeric = function '0' .. '9' -> true | _ -> false
 let char_to_num c = int_of_char c - int_of_char '0'
 
 let rec read_num acc lex =
   match peek lex with
-  | None -> (acc, lex)
-  | Some c ->
-      if is_numeric c then
-        let _, next_lex = eat lex in
-        let num = char_to_num c in
-        read_num ((acc * 10) + num) next_lex
-      else (acc, lex)
+  | Some c when is_numeric c ->
+      let next_lex = advance lex in
+      let num = char_to_num c in
+      read_num ((acc * 10) + num) next_lex
+  | _ -> (acc, lex)
 
 let lex_num lex = read_num 0 lex
 
@@ -47,9 +45,8 @@ let is_id_char = function
 
 let rec read_sym acc lex =
   match peek lex with
-  | None -> (acc, lex)
-  | Some c ->
-      if is_id_char c then read_sym (c :: acc) (advance lex) else (acc, lex)
+  | Some c when is_id_char c -> read_sym (c :: acc) (advance lex)
+  | _ -> (acc, lex)
 
 let lex_sym lex =
   let s_list, new_lex = read_sym [] lex in
@@ -75,7 +72,7 @@ let rec skip_block_comment lex =
   match peek lex with
   | None -> (Unclosed, lex)
   | Some '*' -> (
-      let _, after_star = eat lex in
+      let after_star = advance lex in
       match peek after_star with
       | Some '/' -> (Closed, advance after_star)
       | _ -> skip_block_comment after_star)
