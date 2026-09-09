@@ -5,6 +5,7 @@ let make source = { source = String.to_seq source; pos = { line = 0; col = 0 } }
 let peek lex =
   match lex.source () with Seq.Nil -> None | Seq.Cons (c, _) -> Some c
 
+(** Gets a character from the source and sets new position *)
 let eat lex =
   match lex.source () with
   | Seq.Nil -> (None, lex)

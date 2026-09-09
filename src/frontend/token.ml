@@ -17,7 +17,6 @@ type kind =
   | EOF
 [@@deriving show]
 
-(* makes a kind, value pair for json suite *)
 let kind_to_json_pair = function
   | LParen -> ("LPAREN", "(")
   | RParen -> ("RPAREN", ")")
