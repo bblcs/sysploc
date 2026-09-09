@@ -22,8 +22,11 @@ let dump_to_file filename data =
   Out_channel.with_open_text filename (fun oc ->
       Out_channel.output_string oc data)
 
-let usage_msg = "usage: sysploc [-t <dump tokens file> | -v] <source file>"
+let usage_msg =
+  "usage: sysploc [-t <dump tokens file> | -a <dump ast file> -v] <source file>"
+
 let dump_tokens_file = ref ""
+let dump_ast_file = ref ""
 let verbose = ref false
 let source_file = ref ""
 let anon_fun source = source_file := source
@@ -33,6 +36,7 @@ let speclist =
     ( "-t",
       Arg.Set_string dump_tokens_file,
       "Set a file to dump tokens as a json to" );
+    ("-a", Arg.Set_string dump_ast_file, "Set a file to dump ast as a json to");
     ("-v", Arg.Set verbose, "Duplicate json dumps and input into stdout");
   ]
 
