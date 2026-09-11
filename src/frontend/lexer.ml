@@ -51,7 +51,7 @@ let rec read_sym acc lex =
 
 let lex_sym lex =
   let s_list, new_lex = read_sym [] lex in
-  let s = String.of_seq (List.to_seq (List.rev s_list)) in
+  let s = s_list |> List.rev |> List.to_seq |> String.of_seq in
   let tok =
     match s with
     | "val" -> Token.Val
@@ -94,7 +94,7 @@ let rec next lex =
   | Some '-' -> yield Token.Minus ()
   | Some '*' -> yield Token.Mult ()
   | Some '/' -> (
-      let _, post_slash_lex = eat skipped in
+      let post_slash_lex = advance skipped in
       match peek post_slash_lex with
       | Some '/' -> next (skip_line_comment skipped)
       | Some '*' -> (
