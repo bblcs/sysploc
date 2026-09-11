@@ -59,4 +59,16 @@ let () =
   if !dump_tokens_file <> "" then begin
     dump_to_file !dump_tokens_file (dump_tokens_json lexer)
   end;
+  if !dump_ast_file <> "" then begin
+    let tokens = get_tokens lexer in
+    let res = Parser.unwrap Parser.parse_program tokens in
+    match res with
+    | Ok (ast, []) ->
+        print_endline "parsed fine";
+        List.iter (fun stmt -> print_endline (Ast.show_statement stmt)) ast
+    | Ok (ast, rem) ->
+        print_endline "parsed with a remainder";
+        List.iter (fun tok -> print_endline (Token.show tok)) rem
+    | Error s -> failwith s
+  end;
   exit (match !there_were_errors with true -> 1 | false -> 0)

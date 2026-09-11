@@ -12,14 +12,14 @@
       ]
     },
     "parser": {
-      "cmd": ["{root}/build/splc", "-a", "{ast_in}", "{input}"],
+      "cmd": ["{root}/_build/default/src/driver/main.exe", "-a", "{ast_in}", "{input}"],
       "out": "{ast_out}",
       "preprocess": [
         {"type": "json", "keep": ["kind"]}
       ]
     },
     "llvm": {
-      "cmd": ["{root}/build/splc", "-g", "{grammar}", "-o", "{llvm_out}", "{input}"],
+      "cmd": ["{root}/_build/default/src/driver/main.exe", "-g", "{grammar}", "-o", "{llvm_out}", "{input}"],
       "out": "{llvm_out}",
       "preprocess": [
         {"type": "llvm"}
