@@ -1,5 +1,3 @@
 (library
  (name frontend)
- (libraries yojson)
- (preprocess
-  (pps ppx_deriving.show)))
+ (libraries yojson))
