@@ -15,12 +15,11 @@ type kind =
   | Err of string
   | ErrInvalidChar of char
   | EOF
-[@@deriving show]
 
 let kind_to_json_pair = function
   | LParen -> ("LPAREN", "(")
   | RParen -> ("RPAREN", ")")
-  | Assign -> ("EQ", "=")
+  | Assign -> ("ASSIGN", "=")
   | Semi -> ("SEMI", ";")
   | Plus -> ("PLUS", "+")
   | Minus -> ("MINUS", "-")
@@ -35,7 +34,26 @@ let kind_to_json_pair = function
   | ErrInvalidChar c -> ("ERROR", String.make 1 c)
   | EOF -> ("EOF", "")
 
-type t = { kind : kind; pos : Loc.pos } [@@deriving show]
+type t = { kind : kind; pos : Loc.pos }
+
+let show t =
+  match t.kind with
+  | LParen -> "LParen"
+  | RParen -> "RParen"
+  | Assign -> "Assign"
+  | Semi -> "Semi"
+  | Plus -> "Plus"
+  | Minus -> "Minus"
+  | Mult -> "Mult"
+  | Div -> "Div"
+  | Val -> "Val"
+  | Var -> "Var"
+  | Ret -> "Ret"
+  | Num n -> Format.sprintf "Num(%d)" n
+  | Id s -> Format.sprintf "Id(%s)" s
+  | Err err -> Format.sprintf "Err(%s)" err
+  | ErrInvalidChar c -> Format.sprintf "ErrInvalidChar(%c)" c
+  | EOF -> "EOF"
 
 let to_yojson token =
   let kind, value = kind_to_json_pair token.kind in

@@ -54,7 +54,8 @@ let () =
     print_endline "source:";
     print_endline src;
     print_endline "lexing:";
-    print_endline (dump_tokens_json lexer)
+    List.iter (fun t -> Format.printf "%s " (Token.show t)) (get_tokens lexer);
+    print_endline ""
   end;
   if !dump_tokens_file <> "" then begin
     dump_to_file !dump_tokens_file (dump_tokens_json lexer)
@@ -65,7 +66,7 @@ let () =
     match res with
     | Ok (ast, []) ->
         print_endline "parsed fine";
-        List.iter (fun stmt -> print_endline (Ast.show_statement stmt)) ast
+        Ast.print_program ast
     | Ok (ast, rem) ->
         print_endline "parsed with a remainder";
         List.iter (fun tok -> print_endline (Token.show tok)) rem
