@@ -11,6 +11,7 @@ type expr =
   | Id of string
   | UnaryMinus of expr
   | BinOp of expr * binop * expr
+  | ErrorExpr
 
 type decltype = Const | Mut [@@deriving show]
 
@@ -21,6 +22,7 @@ type statement =
   | Decl of string * expr * decltype
   | Assignment of string * expr
   | Expr of expr
+  | ErrorStmt
 
 type program = statement list
 
@@ -37,6 +39,7 @@ let rec str_expr expr ident =
       Format.sprintf "%sBinOp %s of\n%s%s" space (string_of_binop op)
         (str_expr lhs (ident + 1))
         (str_expr rhs (ident + 1))
+  | ErrorExpr -> Format.sprintf "%sErrorExpr\n" space
 
 let str_stmt stmt ident =
   let space = repeat "  " ident in
@@ -50,6 +53,7 @@ let str_stmt stmt ident =
         (str_expr e (ident + 1))
   | Expr e ->
       Format.sprintf "%sExprStatement of\n%s" space (str_expr e (ident + 1))
+  | ErrorStmt -> Format.sprintf "%sErrorStmt\n" space
 
 let print_program prog =
   print_endline "Program of";

@@ -1,15 +1,32 @@
-type 'a parser =
-  | Parser of (Token.t list -> ('a * Token.t list, string) result)
+type error = { pos : Loc.pos; msg : string }
+
+type 'a parse_result =
+  | Ok of 'a * Token.t list * error list
+  | Error of error list
+
+let eof_loc = Loc.{ line = -1; col = -1 }
+
+type 'a parser = Parser of (Token.t list -> 'a parse_result)
+
+let cur_pos = function [] -> eof_loc | t :: _ -> t.Token.pos
 
 (** haskell at home: *)
 let unwrap (Parser pf) inp = pf inp
 
-let error s = Parser (fun _ -> Error s)
-let result v = Parser (fun inp -> Ok (v, inp))
-let zero = Parser (fun _ -> Error "zero")
+let error msg =
+  Parser
+    (fun inp ->
+      let pos = cur_pos inp in
+      Error [ { pos; msg } ])
+
+let result v = Parser (fun inp -> Ok (v, inp, []))
+let zero = error "zero"
 
 let item =
-  Parser (function [] -> Error "item on empty" | tok :: rem -> Ok (tok, rem))
+  Parser
+    (function
+    | [] -> Error [ { pos = eof_loc; msg = "Unexpected EOF in item." } ]
+    | tok :: rem -> Ok (tok, rem, []))
 
 let choice (Parser pf1) (Parser pf2) =
   Parser
@@ -19,17 +36,28 @@ let choice (Parser pf1) (Parser pf2) =
       | Error e1 -> (
           match pf2 inp with
           | Ok _ as success -> success
-          | Error e2 -> Error (e1 ^ " or " ^ e2)))
+          | Error e2 -> Error (e1 @ e2)))
 
 let ( <|> ) = choice
+
+let expected (Parser pf) msg =
+  Parser
+    (fun inp ->
+      match pf inp with
+      | Ok _ as success -> success
+      | Error _ -> Error [ { pos = cur_pos inp; msg = "Expected: " ^ msg } ])
+
+let ( <?> ) = expected
 
 let bind (Parser pf) f =
   Parser
     (fun inp ->
       match pf inp with
-      | Ok (v, rem) ->
+      | Ok (v, rem, e1) -> (
           let (Parser fp) = f v in
-          fp rem
+          match fp rem with
+          | Ok (v2, rem2, e2) -> Ok (v2, rem2, e1 @ e2)
+          | Error e2 -> Error (e1 @ e2))
       | Error _ as e -> e)
 
 let ( >>= ) = bind
@@ -56,17 +84,35 @@ let tok kind = sat (fun cur -> cur.kind = kind)
 let rec many (Parser pf) =
   Parser
     (fun inp ->
-      let rec loop acc rem =
+      let rec loop acc rem errs =
         match pf rem with
-        | Error _ -> Ok (List.rev acc, rem)
-        | Ok (v, nrem) -> loop (v :: acc) nrem
+        | Error _ -> Ok (List.rev acc, rem, errs)
+        | Ok (v, nrem, e) ->
+            if rem == nrem then Ok (List.rev acc, rem, errs)
+            else loop (v :: acc) nrem (errs @ e)
       in
-      loop [] inp)
+      loop [] inp [])
 
 and many1 p =
   let* fst = p in
   let+ rem = many p in
   fst :: rem
+
+let recover (Parser pf) syncs sentinel =
+  Parser
+    (fun inp ->
+      match pf inp with
+      | Ok _ as ok -> ok
+      | Error e ->
+          let rec loop rem =
+            match rem with
+            | t :: nrem ->
+                if List.mem t.Token.kind syncs then Ok (sentinel, rem, e)
+                else loop nrem
+            | [] ->
+                Error [ { pos = eof_loc; msg = "Unexpected EOF on revovery" } ]
+          in
+          loop inp)
 
 let opval p op =
   let* f = op in
@@ -74,7 +120,10 @@ let opval p op =
   (f, y)
 
 let bracket ope p clo = tok ope *> p <* tok clo
-let parens p = bracket Token.LParen p Token.RParen
+
+let parens p =
+  let safe = recover p [ Token.RParen; Token.EOF ] Ast.ErrorExpr in
+  bracket Token.LParen safe Token.RParen
 
 let chainl1 p op =
   let rec rest x =
@@ -127,7 +176,11 @@ and parse_multexp =
 and parse_addexp =
   Parser (fun inp -> unwrap (chainl1 parse_multexp parse_additive) inp)
 
-and parse_expr = Parser (fun inp -> unwrap parse_addexp inp)
+(* NOTE questionable*)
+and parse_expr =
+  Parser
+    (fun inp ->
+      unwrap (recover parse_addexp [ Token.Semi; Token.EOF ] Ast.ErrorExpr) inp)
 
 let parse_expr_stmt =
   let+ expr = parse_expr <* tok Token.Semi in
@@ -151,7 +204,9 @@ let parse_ret_stmt =
   let+ expr = tok Token.Ret *> parse_expr <* tok Token.Semi in
   Ast.Ret expr
 
-let parse_stmt =
+let parse_stmt_rule =
   parse_ret_stmt <|> parse_decl_stmt <|> parse_assign_stmt <|> parse_expr_stmt
+  <?> "statement"
 
+let parse_stmt = recover parse_stmt_rule [ Token.Semi; Token.EOF ] Ast.ErrorStmt
 let rec parse_program = many parse_stmt <* tok Token.EOF

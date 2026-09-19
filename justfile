@@ -11,4 +11,8 @@ watch:
     dune build -w
 
 run *args: build
-    ./_build/default/src/driver/main.exe {{args}}
+    dune exec src/driver/main.exe -- {{args}}
+
+debug *args:
+    dune build src/driver/main.bc
+    ocamldebug _build/default/src/driver/main.bc {{args}}
