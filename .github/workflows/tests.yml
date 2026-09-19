@@ -12,6 +12,7 @@ jobs:
       matrix:
         # Add grammar versions you have implemented (e.g. [1, 2, 3, 4, 5])
         grammar: [1]
+        stage: ["lexer"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -25,10 +26,10 @@ jobs:
         uses: ocaml/setup-ocaml@v3
 
       - name: Install compiler dependencies
-        run: opam install ppx_deriving yojson ppx_deriving_yojson
+        run: opam install yojson
 
       - name: Build compiler
         run: opam exec -- dune build
 
-      - name: Run tests for grammar ${{ matrix.grammar }}
-        run: python3 test/run_tests.py test --grammar ${{ matrix.grammar }} --no-build
+      - name: Run tests for grammar ${{ matrix.grammar }} stage ${{ matrix.stage }}
+        run: python3 test/run_tests.py test --grammar ${{ matrix.grammar }} --stage ${{ matrix.stage }} --no-build
