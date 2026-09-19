@@ -1,4 +1,5 @@
 {
+  "$schema": "schemas/config.schema.json",
   "build": "opam exec -- dune build",
   "default_grammar": "1",
   "versions": [1, 2, 3, 4, 5],
@@ -25,7 +26,7 @@
         {"type": "llvm"}
       ]
     },
-    "compile": {
+    "compiler": {
       "cmd": ["{root}/build/splc", "-g", "{grammar}", "-o", "{exe}", "{input}"]
     },
     "run": {

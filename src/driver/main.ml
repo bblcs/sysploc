@@ -100,10 +100,8 @@ let () =
       List.iter (fun tok -> print_endline (Token.show tok)) rem_tok
     end
   end;
-  if all_errs <> [] then begin
+  if all_errs <> [] && !dump_ast_file <> "" then begin
     List.iter print_error all_errs;
     exit 1
-  end
-  else begin
-    exit 0
-  end
+  end;
+  if lex_errors <> [] then exit 1 else exit 0
