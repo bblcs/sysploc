@@ -1,5 +1,5 @@
 (executable
  (name main)
  (modes byte exe)
- (public_name splc)
+ (public_name sysploc)
  (libraries frontend))
