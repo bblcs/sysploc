@@ -1,0 +1,10 @@
+{
+  "$schema": "../../schemas/meta.schema.json",
+  "grammar": [
+    "1",
+    "2"
+  ],
+  "stages": [
+    "lexer"
+  ]
+}
