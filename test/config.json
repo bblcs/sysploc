@@ -9,7 +9,7 @@
       "cmd": ["{root}/_build/default/src/driver/main.exe", "-t", "{tokens_in}", "{input}"],
       "out": "{tokens_out}",
       "preprocess": [
-        {"type": "json", "keep": ["kind", "line", "column"]}
+        {"type": "json", "keep": ["kind", "line", "column", "value"]}
       ]
     },
     "parser": {
