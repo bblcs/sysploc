@@ -101,7 +101,8 @@ let rec next lex =
           let comment, new_lex = skip_block_comment (advance post_slash_lex) in
           match comment with
           | Unclosed ->
-              yield (Token.Err "Unclosed block comment") ~next_lex:new_lex ()
+              yield (Token.Err "Unterminated multi-line comment")
+                ~next_lex:new_lex ()
           | Closed -> next new_lex)
       | _ -> yield Token.Div ())
   | Some c when is_numeric c ->
