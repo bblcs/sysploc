@@ -7,7 +7,7 @@ let string_of_binop = function
   | Div -> "/"
 
 type expr =
-  | IntLit of int
+  | IntLit of int64
   | Id of string
   | UnaryMinus of expr
   | BinOp of expr * binop * expr
@@ -31,7 +31,7 @@ let rec repeat s n = if n = 0 then s else s ^ repeat s (n - 1)
 let rec str_expr expr ident =
   let space = repeat "  " ident in
   match expr with
-  | IntLit n -> Format.sprintf "%sIntLit(%d)\n" space n
+  | IntLit n -> Format.sprintf "%sIntLit(%Ld)\n" space n
   | Id s -> Format.sprintf "%sId(%s)\n" space s
   | UnaryMinus e ->
       Format.sprintf "%sUnaryMinus of\n%s" space (str_expr e (ident + 1))

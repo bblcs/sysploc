@@ -10,7 +10,7 @@ type kind =
   | Val
   | Var
   | Ret
-  | Num of int
+  | Num of int64
   | Id of string
   | Err of string
   | ErrInvalidChar of char
@@ -28,7 +28,7 @@ let kind_to_json_pair = function
   | Val -> ("VAL", "val")
   | Var -> ("VAR", "var")
   | Ret -> ("RETURN", "return")
-  | Num n -> ("INT", string_of_int n)
+  | Num n -> ("INT", Int64.to_string n)
   | Id s -> ("IDENT", s)
   | Err err -> ("ERROR", err)
   | ErrInvalidChar c -> ("ERROR", String.make 1 c)
@@ -49,7 +49,7 @@ let show t =
   | Val -> "Val"
   | Var -> "Var"
   | Ret -> "Ret"
-  | Num n -> Format.sprintf "Num(%d)" n
+  | Num n -> Format.sprintf "Num(%Ld)" n
   | Id s -> Format.sprintf "Id(%s)" s
   | Err err -> Format.sprintf "Err(%s)" err
   | ErrInvalidChar c -> Format.sprintf "ErrInvalidChar(%c)" c

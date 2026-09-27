@@ -28,17 +28,17 @@ let rec skip_whitespace lex =
   | _ -> lex
 
 let is_numeric = function '0' .. '9' -> true | _ -> false
-let char_to_num c = int_of_char c - int_of_char '0'
+let char_to_num64 c = Int64.of_int (int_of_char c - int_of_char '0')
 
 let rec read_num acc lex =
   match peek lex with
   | Some c when is_numeric c ->
       let next_lex = advance lex in
-      let num = char_to_num c in
-      read_num ((acc * 10) + num) next_lex
+      let num = char_to_num64 c in
+      read_num (Int64.add (Int64.mul acc 10L) num) next_lex
   | _ -> (acc, lex)
 
-let lex_num lex = read_num 0 lex
+let lex_num lex = read_num 0L lex
 
 let is_id_char = function
   | 'a' .. 'z' | 'A' .. 'Z' | '_' | '0' .. '9' -> true
