@@ -105,6 +105,9 @@ let stmt_to_yojson stmt =
 let program_to_yojson prog =
   let stmts_json = List.map stmt_to_yojson prog in
   let pos =
-    match prog with [] -> Loc.{ line = 0; col = 0 } | start :: _ -> start.pos
+    match prog with
+    | [] -> Loc.{ line = 0; col = 0 }
+    | start :: _ -> (
+        match start.node with Assignment (id, _) -> id.pos | _ -> start.pos)
   in
   json_node pos "Program" stmts_json []
