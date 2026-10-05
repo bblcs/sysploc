@@ -23,8 +23,18 @@ let pass_stmt env stmts =
         match stmt.node with
         | Ast.Decl (name, expr, decl_type) ->
             let expr_errs = pass_expr env expr in
+            let decl_errs =
+              if Env.mem name.node env then
+                [
+                  {
+                    Parser.pos = stmt.pos;
+                    msg = "Variable redefenition: " ^ name.node;
+                  };
+                ]
+              else []
+            in
             let next_env = Env.add name.node decl_type env in
-            walk rest next_env (errors @ expr_errs)
+            walk rest next_env (errors @ expr_errs @ decl_errs)
         | Ast.Assignment (name, expr) ->
             let expr_errs = pass_expr env expr in
             let assign_errs =
