@@ -165,8 +165,8 @@ let parse_intlit =
   Ast.IntLit num
 
 let binop t ast_op =
-  tok t
-  *> result (fun l r -> Ast.{ node = Ast.BinOp (l, ast_op, r); pos = l.pos })
+  let* op_tok = tok t in
+  result (fun l r -> Ast.{ node = Ast.BinOp (l, ast_op, r); pos = op_tok.pos })
 
 let parse_additive = binop Token.Plus Ast.Add <|> binop Token.Minus Ast.Sub
 let parse_multiplicative = binop Token.Mult Ast.Mul <|> binop Token.Div Ast.Div
@@ -181,9 +181,10 @@ and parse_unexp =
     (fun inp ->
       unwrap
         (parse_prim
-        <|> with_pos
-              (let+ prim = tok Token.Minus *> parse_prim in
-               Ast.UnaryMinus prim))
+        <|>
+        let* minus = tok Token.Minus in
+        let+ prim = parse_prim in
+        Ast.{ node = Ast.UnaryMinus prim; pos = minus.pos })
         inp)
 
 and parse_multexp =
@@ -203,9 +204,10 @@ let parse_expr_stmt =
   Ast.Expr expr
 
 let parse_assign_stmt =
-  let* name = with_pos parse_name <* tok Token.Assign in
+  let* name = with_pos parse_name in
+  let* eq = tok Token.Assign in
   let+ expr = parse_expr <* tok Token.Semi in
-  Ast.Assignment (name, expr)
+  Ast.{ node = Ast.Assignment (name, expr); pos = eq.pos }
 
 let parse_decltype =
   tok Token.Var *> result Ast.Mut <|> tok Token.Val *> result Ast.Const
@@ -221,9 +223,9 @@ let parse_ret_stmt =
   Ast.Ret expr
 
 let parse_stmt_rule =
-  with_pos
-    (parse_ret_stmt <|> parse_decl_stmt <|> parse_assign_stmt
-   <|> parse_expr_stmt <?> "statement")
+  parse_assign_stmt
+  <|> with_pos
+        (parse_ret_stmt <|> parse_decl_stmt <|> parse_expr_stmt <?> "statement")
 
 let parse_stmt = recover parse_stmt_rule [ Token.Semi; Token.EOF ] err_stmt
 let rec parse_program = many parse_stmt <* tok Token.EOF
