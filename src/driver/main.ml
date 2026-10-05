@@ -93,7 +93,8 @@ let () =
     | Ok (ast, rem, errs) -> (Some ast, rem, errs)
     | Error errs -> (None, [], errs)
   in
-  let all_errs = lex_errors @ parse_errs in
+  let sema_errs = match ast_opt with Some ast -> Sema.sema ast | None -> [] in
+  let all_errs = lex_errors @ parse_errs @ sema_errs in
   if !verbose then begin
     print_endline "parsing:";
     (match ast_opt with
