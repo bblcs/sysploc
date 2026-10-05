@@ -157,14 +157,12 @@ let parse_num =
   parse_valued (function Token.Num n -> Some n | _ -> None) "Expected Num"
 
 let parse_id =
-  with_pos
-    (let+ name = parse_name in
-     Ast.Id name)
+  let+ name = parse_name in
+  Ast.Id name
 
 let parse_intlit =
-  with_pos
-    (let+ num = parse_num in
-     Ast.IntLit num)
+  let+ num = parse_num in
+  Ast.IntLit num
 
 let binop t ast_op =
   tok t
@@ -175,7 +173,8 @@ let parse_multiplicative = binop Token.Mult Ast.Mul <|> binop Token.Div Ast.Div
 
 let rec parse_prim =
   Parser
-    (fun inp -> unwrap (parse_intlit <|> parse_id <|> parens parse_expr) inp)
+    (fun inp ->
+      unwrap (with_pos (parse_intlit <|> parse_id) <|> parens parse_expr) inp)
 
 and parse_unexp =
   Parser
@@ -200,35 +199,31 @@ and parse_expr =
       unwrap (recover parse_addexp [ Token.Semi; Token.EOF ] err_expr) inp)
 
 let parse_expr_stmt =
-  with_pos
-    (let+ expr = parse_expr <* tok Token.Semi in
-     Ast.Expr expr)
+  let+ expr = parse_expr <* tok Token.Semi in
+  Ast.Expr expr
 
 let parse_assign_stmt =
-  with_pos
-    (let* name = parse_name <* tok Token.Assign in
-     let+ expr = parse_expr <* tok Token.Semi in
-     Ast.Assignment (name, expr))
+  let* name = with_pos parse_name <* tok Token.Assign in
+  let+ expr = parse_expr <* tok Token.Semi in
+  Ast.Assignment (name, expr)
 
 let parse_decltype =
-  with_pos
-    (tok Token.Var *> result Ast.Mut <|> tok Token.Val *> result Ast.Const)
+  tok Token.Var *> result Ast.Mut <|> tok Token.Val *> result Ast.Const
 
 let parse_decl_stmt =
-  with_pos
-    (let* decltype = parse_decltype in
-     let* name = parse_name <* tok Token.Assign in
-     let+ expr = parse_expr <* tok Token.Semi in
-     Ast.Decl (name, expr, decltype.node))
+  let* decltype = parse_decltype in
+  let* name = with_pos parse_name <* tok Token.Assign in
+  let+ expr = parse_expr <* tok Token.Semi in
+  Ast.Decl (name, expr, decltype)
 
 let parse_ret_stmt =
-  with_pos
-    (let+ expr = tok Token.Ret *> parse_expr <* tok Token.Semi in
-     Ast.Ret expr)
+  let+ expr = tok Token.Ret *> parse_expr <* tok Token.Semi in
+  Ast.Ret expr
 
 let parse_stmt_rule =
-  parse_ret_stmt <|> parse_decl_stmt <|> parse_assign_stmt <|> parse_expr_stmt
-  <?> "statement"
+  with_pos
+    (parse_ret_stmt <|> parse_decl_stmt <|> parse_assign_stmt
+   <|> parse_expr_stmt <?> "statement")
 
 let parse_stmt = recover parse_stmt_rule [ Token.Semi; Token.EOF ] err_stmt
 let rec parse_program = many parse_stmt <* tok Token.EOF
