@@ -75,6 +75,15 @@ let ( <* ) a b =
   a >>= fun x ->
   b >>| fun _ -> x
 
+let get_pos =
+  Parser
+    (function [] -> Ok (eof_loc, [], []) | t :: _ as inp -> Ok (t.pos, inp, []))
+
+let with_pos p =
+  let* pos = get_pos in
+  let+ node = p in
+  Ast.{ node; pos }
+
 let sat p =
   let* x = item in
   if p x then result x else zero
@@ -114,6 +123,9 @@ let recover (Parser pf) syncs sentinel =
           in
           loop inp)
 
+let err_expr = Ast.{ node = Ast.ErrorExpr; pos = eof_loc }
+let err_stmt = Ast.{ node = Ast.ErrorStmt; pos = eof_loc }
+
 let opval p op =
   let* f = op in
   let+ y = p in
@@ -122,7 +134,7 @@ let opval p op =
 let bracket ope p clo = tok ope *> p <* tok clo
 
 let parens p =
-  let safe = recover p [ Token.RParen; Token.EOF ] Ast.ErrorExpr in
+  let safe = recover p [ Token.RParen; Token.EOF ] err_expr in
   bracket Token.LParen safe Token.RParen
 
 let chainl1 p op =
@@ -145,14 +157,19 @@ let parse_num =
   parse_valued (function Token.Num n -> Some n | _ -> None) "Expected Num"
 
 let parse_id =
-  let+ name = parse_name in
-  Ast.Id name
+  with_pos
+    (let+ name = parse_name in
+     Ast.Id name)
 
 let parse_intlit =
-  let+ num = parse_num in
-  Ast.IntLit num
+  with_pos
+    (let+ num = parse_num in
+     Ast.IntLit num)
 
-let binop t ast_op = tok t *> result (fun l r -> Ast.BinOp (l, ast_op, r))
+let binop t ast_op =
+  tok t
+  *> result (fun l r -> Ast.{ node = Ast.BinOp (l, ast_op, r); pos = l.pos })
+
 let parse_additive = binop Token.Plus Ast.Add <|> binop Token.Minus Ast.Sub
 let parse_multiplicative = binop Token.Mult Ast.Mul <|> binop Token.Div Ast.Div
 
@@ -165,9 +182,9 @@ and parse_unexp =
     (fun inp ->
       unwrap
         (parse_prim
-        <|>
-        let+ prim = tok Token.Minus *> parse_prim in
-        Ast.UnaryMinus prim)
+        <|> with_pos
+              (let+ prim = tok Token.Minus *> parse_prim in
+               Ast.UnaryMinus prim))
         inp)
 
 and parse_multexp =
@@ -180,33 +197,38 @@ and parse_addexp =
 and parse_expr =
   Parser
     (fun inp ->
-      unwrap (recover parse_addexp [ Token.Semi; Token.EOF ] Ast.ErrorExpr) inp)
+      unwrap (recover parse_addexp [ Token.Semi; Token.EOF ] err_expr) inp)
 
 let parse_expr_stmt =
-  let+ expr = parse_expr <* tok Token.Semi in
-  Ast.Expr expr
+  with_pos
+    (let+ expr = parse_expr <* tok Token.Semi in
+     Ast.Expr expr)
 
 let parse_assign_stmt =
-  let* name = parse_name <* tok Token.Assign in
-  let+ expr = parse_expr <* tok Token.Semi in
-  Ast.Assignment (name, expr)
+  with_pos
+    (let* name = parse_name <* tok Token.Assign in
+     let+ expr = parse_expr <* tok Token.Semi in
+     Ast.Assignment (name, expr))
 
 let parse_decltype =
-  tok Token.Var *> result Ast.Mut <|> tok Token.Val *> result Ast.Const
+  with_pos
+    (tok Token.Var *> result Ast.Mut <|> tok Token.Val *> result Ast.Const)
 
 let parse_decl_stmt =
-  let* decltype = parse_decltype in
-  let* name = parse_name <* tok Token.Assign in
-  let+ expr = parse_expr <* tok Token.Semi in
-  Ast.Decl (name, expr, decltype)
+  with_pos
+    (let* decltype = parse_decltype in
+     let* name = parse_name <* tok Token.Assign in
+     let+ expr = parse_expr <* tok Token.Semi in
+     Ast.Decl (name, expr, decltype.node))
 
 let parse_ret_stmt =
-  let+ expr = tok Token.Ret *> parse_expr <* tok Token.Semi in
-  Ast.Ret expr
+  with_pos
+    (let+ expr = tok Token.Ret *> parse_expr <* tok Token.Semi in
+     Ast.Ret expr)
 
 let parse_stmt_rule =
   parse_ret_stmt <|> parse_decl_stmt <|> parse_assign_stmt <|> parse_expr_stmt
   <?> "statement"
 
-let parse_stmt = recover parse_stmt_rule [ Token.Semi; Token.EOF ] Ast.ErrorStmt
+let parse_stmt = recover parse_stmt_rule [ Token.Semi; Token.EOF ] err_stmt
 let rec parse_program = many parse_stmt <* tok Token.EOF
