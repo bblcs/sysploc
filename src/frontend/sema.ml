@@ -23,24 +23,24 @@ let pass_stmt env stmts =
         match stmt.node with
         | Ast.Decl (name, expr, decl_type) ->
             let expr_errs = pass_expr env expr in
-            let next_env = Env.add name decl_type env in
+            let next_env = Env.add name.node decl_type env in
             walk rest next_env (errors @ expr_errs)
         | Ast.Assignment (name, expr) ->
             let expr_errs = pass_expr env expr in
             let assign_errs =
-              match Env.find_opt name env with
+              match Env.find_opt name.node env with
               | None ->
                   [
                     {
                       Parser.pos = stmt.pos;
-                      msg = "Assignment to undeclared variable: " ^ name;
+                      msg = "Assignment to undeclared variable: " ^ name.node;
                     };
                   ]
               | Some Ast.Const ->
                   [
                     {
                       Parser.pos = stmt.pos;
-                      msg = "Assignment to immutable variable: " ^ name;
+                      msg = "Assignment to immutable variable: " ^ name.node;
                     };
                   ]
               | Some Ast.Mut -> []

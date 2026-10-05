@@ -1,4 +1,5 @@
 type 'a ast_node = { node : 'a; pos : Loc.pos }
+type ident = string ast_node
 type binop = Add | Sub | Mul | Div
 
 let string_of_binop = function
@@ -22,8 +23,8 @@ let string_of_decltype = function Const -> "const" | Mut -> "mut"
 
 type statement_node =
   | Ret of expr
-  | Decl of string * expr * decltype
-  | Assignment of string * expr
+  | Decl of ident * expr * decltype
+  | Assignment of ident * expr
   | Expr of expr
   | ErrorStmt
 
@@ -51,10 +52,11 @@ let str_stmt stmt ident =
   match stmt.node with
   | Ret e -> Format.sprintf "%sRet of\n%s" space (str_expr e (ident + 1))
   | Decl (name, e, typ) ->
-      Format.sprintf "%sDecl %s %s of\n%s" space (string_of_decltype typ) name
+      Format.sprintf "%sDecl %s %s of\n%s" space (string_of_decltype typ)
+        name.node
         (str_expr e (ident + 1))
   | Assignment (name, e) ->
-      Format.sprintf "%sAssignment of %s of\n%s" space name
+      Format.sprintf "%sAssignment of %s of\n%s" space name.node
         (str_expr e (ident + 1))
   | Expr e ->
       Format.sprintf "%sExprStatement of\n%s" space (str_expr e (ident + 1))
