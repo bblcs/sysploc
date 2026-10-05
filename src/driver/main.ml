@@ -108,6 +108,13 @@ let () =
       List.iter (fun tok -> print_endline (Token.show tok)) rem_tok
     end
   end;
+
+  (match ast_opt with
+  | Some ast ->
+      let ast_json_str = Ast.program_to_yojson ast |> Yojson.pretty_to_string in
+      dump_to_file !dump_ast_file ast_json_str
+  | None -> ());
+
   if all_errs <> [] then begin
     List.iter print_error all_errs;
     exit 1
