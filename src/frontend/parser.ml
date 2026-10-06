@@ -85,8 +85,12 @@ let with_pos p =
   Ast.{ node; pos }
 
 let sat p =
-  let* x = item in
-  if p x then result x else zero
+  Parser
+    (function
+    | [] -> Error [ { pos = eof_loc; msg = "Unexpected EOF" } ]
+    | tok :: rem ->
+        if p tok then Ok (tok, rem, [])
+        else Error [ { pos = tok.pos; msg = "zero" } ])
 
 let tok kind = sat (fun cur -> cur.kind = kind)
 
@@ -107,24 +111,31 @@ and many1 p =
   let+ rem = many p in
   fst :: rem
 
-let recover (Parser pf) syncs sentinel =
+let recover (Parser pf) syncs sentinel_gen =
   Parser
     (fun inp ->
       match pf inp with
       | Ok _ as ok -> ok
       | Error e ->
+          let err_pos =
+            List.fold_left
+              (fun max_pos err ->
+                if err.pos > max_pos then err.pos else max_pos)
+              (cur_pos inp) e
+          in
           let rec loop rem =
             match rem with
             | t :: nrem ->
-                if List.mem t.Token.kind syncs then Ok (sentinel, rem, e)
+                if List.mem t.Token.kind syncs then
+                  Ok (sentinel_gen err_pos, rem, e)
                 else loop nrem
             | [] ->
-                Error [ { pos = eof_loc; msg = "Unexpected EOF on revovery" } ]
+                Error [ { pos = eof_loc; msg = "Unexpected EOF on recovery" } ]
           in
           loop inp)
 
-let err_expr = Ast.{ node = Ast.ErrorExpr; pos = eof_loc }
-let err_stmt = Ast.{ node = Ast.ErrorStmt; pos = eof_loc }
+let err_expr pos = Ast.{ node = Ast.ErrorExpr; pos }
+let err_stmt pos = Ast.{ node = Ast.ErrorStmt; pos }
 
 let opval p op =
   let* f = op in
@@ -147,8 +158,13 @@ let chainl1 p op =
   p >>= rest
 
 let parse_valued f err =
-  let* t = item in
-  match f t.kind with Some v -> result v | None -> error err
+  Parser
+    (function
+    | [] -> Error [ { pos = eof_loc; msg = "Unexpected EOF" } ]
+    | tok :: rem -> (
+        match f tok.kind with
+        | Some v -> Ok (v, rem, [])
+        | None -> Error [ { pos = tok.pos; msg = err } ]))
 
 let parse_name =
   parse_valued (function Token.Id s -> Some s | _ -> None) "Expected Id"
@@ -214,8 +230,11 @@ let parse_decltype =
 
 let parse_decl_stmt =
   let* decltype = parse_decltype in
-  let* name = with_pos parse_name <* tok Token.Assign in
-  let+ expr = parse_expr <* tok Token.Semi in
+  let* name = with_pos parse_name in
+  let* expr =
+    recover (tok Token.Assign *> parse_expr) [ Token.Semi; Token.EOF ] err_expr
+  in
+  let+ _ = tok Token.Semi in
   Ast.Decl (name, expr, decltype)
 
 let parse_ret_stmt =
