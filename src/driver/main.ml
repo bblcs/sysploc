@@ -93,7 +93,8 @@ let () =
     | Ok (ast, rem, errs) -> (Some ast, rem, errs)
     | Error errs -> (None, [], errs)
   in
-  let all_errs = lex_errors @ parse_errs in
+  let sema_errs = match ast_opt with Some ast -> Sema.sema ast | None -> [] in
+  let all_errs = lex_errors @ parse_errs @ sema_errs in
   if !verbose then begin
     print_endline "parsing:";
     (match ast_opt with
@@ -107,6 +108,13 @@ let () =
       List.iter (fun tok -> print_endline (Token.show tok)) rem_tok
     end
   end;
+
+  (match ast_opt with
+  | Some ast ->
+      let ast_json_str = Ast.program_to_yojson ast |> Yojson.pretty_to_string in
+      dump_to_file !dump_ast_file ast_json_str
+  | None -> ());
+
   if all_errs <> [] then begin
     List.iter print_error all_errs;
     exit 1

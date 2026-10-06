@@ -75,9 +75,22 @@ let ( <* ) a b =
   a >>= fun x ->
   b >>| fun _ -> x
 
+let get_pos =
+  Parser
+    (function [] -> Ok (eof_loc, [], []) | t :: _ as inp -> Ok (t.pos, inp, []))
+
+let with_pos p =
+  let* pos = get_pos in
+  let+ node = p in
+  Ast.{ node; pos }
+
 let sat p =
-  let* x = item in
-  if p x then result x else zero
+  Parser
+    (function
+    | [] -> Error [ { pos = eof_loc; msg = "Unexpected EOF" } ]
+    | tok :: rem ->
+        if p tok then Ok (tok, rem, [])
+        else Error [ { pos = tok.pos; msg = "zero" } ])
 
 let tok kind = sat (fun cur -> cur.kind = kind)
 
@@ -98,21 +111,31 @@ and many1 p =
   let+ rem = many p in
   fst :: rem
 
-let recover (Parser pf) syncs sentinel =
+let recover (Parser pf) syncs sentinel_gen =
   Parser
     (fun inp ->
       match pf inp with
       | Ok _ as ok -> ok
       | Error e ->
+          let err_pos =
+            List.fold_left
+              (fun max_pos err ->
+                if err.pos > max_pos then err.pos else max_pos)
+              (cur_pos inp) e
+          in
           let rec loop rem =
             match rem with
             | t :: nrem ->
-                if List.mem t.Token.kind syncs then Ok (sentinel, rem, e)
+                if List.mem t.Token.kind syncs then
+                  Ok (sentinel_gen err_pos, rem, e)
                 else loop nrem
             | [] ->
-                Error [ { pos = eof_loc; msg = "Unexpected EOF on revovery" } ]
+                Error [ { pos = eof_loc; msg = "Unexpected EOF on recovery" } ]
           in
           loop inp)
+
+let err_expr pos = Ast.{ node = Ast.ErrorExpr; pos }
+let err_stmt pos = Ast.{ node = Ast.ErrorStmt; pos }
 
 let opval p op =
   let* f = op in
@@ -122,7 +145,7 @@ let opval p op =
 let bracket ope p clo = tok ope *> p <* tok clo
 
 let parens p =
-  let safe = recover p [ Token.RParen; Token.EOF ] Ast.ErrorExpr in
+  let safe = recover p [ Token.RParen; Token.EOF ] err_expr in
   bracket Token.LParen safe Token.RParen
 
 let chainl1 p op =
@@ -135,8 +158,13 @@ let chainl1 p op =
   p >>= rest
 
 let parse_valued f err =
-  let* t = item in
-  match f t.kind with Some v -> result v | None -> error err
+  Parser
+    (function
+    | [] -> Error [ { pos = eof_loc; msg = "Unexpected EOF" } ]
+    | tok :: rem -> (
+        match f tok.kind with
+        | Some v -> Ok (v, rem, [])
+        | None -> Error [ { pos = tok.pos; msg = err } ]))
 
 let parse_name =
   parse_valued (function Token.Id s -> Some s | _ -> None) "Expected Id"
@@ -152,13 +180,17 @@ let parse_intlit =
   let+ num = parse_num in
   Ast.IntLit num
 
-let binop t ast_op = tok t *> result (fun l r -> Ast.BinOp (l, ast_op, r))
+let binop t ast_op =
+  let* op_tok = tok t in
+  result (fun l r -> Ast.{ node = Ast.BinOp (l, ast_op, r); pos = op_tok.pos })
+
 let parse_additive = binop Token.Plus Ast.Add <|> binop Token.Minus Ast.Sub
 let parse_multiplicative = binop Token.Mult Ast.Mul <|> binop Token.Div Ast.Div
 
 let rec parse_prim =
   Parser
-    (fun inp -> unwrap (parse_intlit <|> parse_id <|> parens parse_expr) inp)
+    (fun inp ->
+      unwrap (with_pos (parse_intlit <|> parse_id) <|> parens parse_expr) inp)
 
 and parse_unexp =
   Parser
@@ -166,8 +198,9 @@ and parse_unexp =
       unwrap
         (parse_prim
         <|>
-        let+ prim = tok Token.Minus *> parse_prim in
-        Ast.UnaryMinus prim)
+        let* minus = tok Token.Minus in
+        let+ prim = parse_prim in
+        Ast.{ node = Ast.UnaryMinus prim; pos = minus.pos })
         inp)
 
 and parse_multexp =
@@ -180,24 +213,28 @@ and parse_addexp =
 and parse_expr =
   Parser
     (fun inp ->
-      unwrap (recover parse_addexp [ Token.Semi; Token.EOF ] Ast.ErrorExpr) inp)
+      unwrap (recover parse_addexp [ Token.Semi; Token.EOF ] err_expr) inp)
 
 let parse_expr_stmt =
   let+ expr = parse_expr <* tok Token.Semi in
   Ast.Expr expr
 
 let parse_assign_stmt =
-  let* name = parse_name <* tok Token.Assign in
+  let* name = with_pos parse_name in
+  let* eq = tok Token.Assign in
   let+ expr = parse_expr <* tok Token.Semi in
-  Ast.Assignment (name, expr)
+  Ast.{ node = Ast.Assignment (name, expr); pos = eq.pos }
 
 let parse_decltype =
   tok Token.Var *> result Ast.Mut <|> tok Token.Val *> result Ast.Const
 
 let parse_decl_stmt =
   let* decltype = parse_decltype in
-  let* name = parse_name <* tok Token.Assign in
-  let+ expr = parse_expr <* tok Token.Semi in
+  let* name = with_pos parse_name in
+  let* expr =
+    recover (tok Token.Assign *> parse_expr) [ Token.Semi; Token.EOF ] err_expr
+  in
+  let+ _ = tok Token.Semi in
   Ast.Decl (name, expr, decltype)
 
 let parse_ret_stmt =
@@ -205,8 +242,9 @@ let parse_ret_stmt =
   Ast.Ret expr
 
 let parse_stmt_rule =
-  parse_ret_stmt <|> parse_decl_stmt <|> parse_assign_stmt <|> parse_expr_stmt
-  <?> "statement"
+  parse_assign_stmt
+  <|> with_pos
+        (parse_ret_stmt <|> parse_decl_stmt <|> parse_expr_stmt <?> "statement")
 
-let parse_stmt = recover parse_stmt_rule [ Token.Semi; Token.EOF ] Ast.ErrorStmt
+let parse_stmt = recover parse_stmt_rule [ Token.Semi; Token.EOF ] err_stmt
 let rec parse_program = many parse_stmt <* tok Token.EOF
