@@ -80,7 +80,8 @@ let ident_to_yojson id =
 let rec expr_to_yojson expr =
   match expr.node with
   | IntLit n ->
-      json_node expr.pos "IntLiteral" [] [ ("value", `Int (Int64.to_int n)) ]
+      json_node expr.pos "IntLiteral" []
+        [ ("value", `Intlit (Int64.to_string n)) ]
   | Id s -> json_node expr.pos "Ident" [] [ ("value", `String s) ]
   | UnaryMinus e -> json_node expr.pos "Unary" [ expr_to_yojson e ] []
   | BinOp (lhs, op, rhs) ->
