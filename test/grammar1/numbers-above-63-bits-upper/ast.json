@@ -1,0 +1,21 @@
+{
+  "line": 1,
+  "column": 1,
+  "kind": "Program",
+  "elems": [
+    {
+      "line": 1,
+      "column": 1,
+      "kind": "Return",
+      "elems": [
+        {
+          "line": 1,
+          "column": 8,
+          "kind": "IntLiteral",
+          "value": 9223372036854775807,
+          "elems": []
+        }
+      ]
+    }
+  ]
+}
