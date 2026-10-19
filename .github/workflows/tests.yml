@@ -12,7 +12,7 @@ jobs:
       matrix:
         # Add grammar versions you have implemented (e.g. [1, 2, 3, 4, 5])
         grammar: [1]
-        stage: ["lexer", "parser"]
+        stage: ["lexer", "parser", "llvm", "compiler", "run"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -33,7 +33,7 @@ jobs:
           ocaml-compiler: 5.1.0
 
       - name: Install compiler dependencies
-        run: opam install yojson
+        run: opam install yojson llvm
 
       - name: Build compiler
         run: opam exec -- dune build
