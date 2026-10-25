@@ -44,6 +44,7 @@ let usage_msg =
 
 let dump_tokens_file = ref ""
 let dump_ast_file = ref ""
+let dump_ir = ref ""
 let verbose = ref false
 let source_file = ref ""
 let anon_fun source = source_file := source
@@ -54,6 +55,7 @@ let speclist =
       Arg.Set_string dump_tokens_file,
       "Set a file to dump tokens as a json to" );
     ("-a", Arg.Set_string dump_ast_file, "Set a file to dump ast as a json to");
+    ("-o", Arg.Set_string dump_ir, "Set a file to dump llvm ir to");
     ("-v", Arg.Set verbose, "Duplicate json dumps and input into stdout");
   ]
 
@@ -80,7 +82,7 @@ let () =
   end;
   let valid_tokens, lex_errors = separate_tokens all_tokens in
 
-  if !dump_ast_file = "" then begin
+  if !dump_ast_file = "" && !dump_ir = "" then begin
     if lex_errors <> [] then begin
       List.iter print_error lex_errors;
       exit 1
@@ -111,11 +113,27 @@ let () =
 
   (match ast_opt with
   | Some ast ->
-      let ast_json_str = Ast.program_to_yojson ast |> Yojson.pretty_to_string in
-      dump_to_file !dump_ast_file ast_json_str
+      if !dump_ast_file <> "" then begin
+        let ast_json_str =
+          Ast.program_to_yojson ast |> Yojson.pretty_to_string
+        in
+        dump_to_file !dump_ast_file ast_json_str
+      end
   | None -> ());
 
   if all_errs <> [] then begin
     List.iter print_error all_errs;
     exit 1
-  end
+  end;
+
+  if !dump_ir <> "" then
+    begin match ast_opt with
+    | Some ast ->
+        let ll_mod = Codegen.codegen_program ast in
+        Llvm.print_module !dump_ir ll_mod;
+        if !verbose then begin
+          print_endline "llvm ir:";
+          print_endline (Llvm.string_of_llmodule ll_mod)
+        end
+    | None -> failwith "unreachable"
+    end
