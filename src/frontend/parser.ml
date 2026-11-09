@@ -117,17 +117,11 @@ let recover (Parser pf) syncs sentinel_gen =
       match pf inp with
       | Ok _ as ok -> ok
       | Error e ->
-          let err_pos =
-            List.fold_left
-              (fun max_pos err ->
-                if err.pos > max_pos then err.pos else max_pos)
-              (cur_pos inp) e
-          in
           let rec loop rem =
             match rem with
             | t :: nrem ->
                 if List.mem t.Token.kind syncs then
-                  Ok (sentinel_gen err_pos, rem, e)
+                  Ok (sentinel_gen t.pos, rem, e)
                 else loop nrem
             | [] ->
                 Error [ { pos = eof_loc; msg = "Unexpected EOF on recovery" } ]
