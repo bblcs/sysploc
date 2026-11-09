@@ -202,7 +202,7 @@ let parse_relational =
 
 let parse_eq = binop Token.Eq Ast.Eq <|> binop Token.Ne Ast.Ne
 let parse_and = binop Token.And Ast.And
-let parse_or = binop Token.And Ast.And
+let parse_or = binop Token.Or Ast.Or
 
 let rec parse_prim =
   Parser
