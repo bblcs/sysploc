@@ -289,7 +289,9 @@ let rec parse_if_stmt =
     (fun inp ->
       unwrap
         (let* _ = tok Token.If in
-         let* cond = parens parse_expr in
+         let* cond =
+           recover (parens parse_expr) [ Token.LBrace; Token.EOF ] err_expr
+         in
          let* then_stmt = parse_stmt in
          let+ else_stmt =
            (let* _ = tok Token.Else in
@@ -305,7 +307,9 @@ and parse_while_stmt =
     (fun inp ->
       unwrap
         (let* _ = tok Token.While in
-         let* cond = parens parse_expr in
+         let* cond =
+           recover (parens parse_expr) [ Token.LBrace; Token.EOF ] err_expr
+         in
          let+ body = parse_stmt in
          Ast.While (cond, body))
         inp)
