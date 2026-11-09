@@ -172,6 +172,11 @@ let parse_name =
 let parse_num =
   parse_valued (function Token.Num n -> Some n | _ -> None) "Expected Num"
 
+let parse_bool =
+  parse_valued
+    (function Token.True -> Some true | Token.False -> Some false | _ -> None)
+    "Expected Bool"
+
 let parse_id =
   let+ name = parse_name in
   Ast.Id name
@@ -180,6 +185,10 @@ let parse_intlit =
   let+ num = parse_num in
   Ast.IntLit num
 
+let parse_boollit =
+  let+ bool = parse_bool in
+  Ast.BoolLit bool
+
 let binop t ast_op =
   let* op_tok = tok t in
   result (fun l r -> Ast.{ node = Ast.BinOp (l, ast_op, r); pos = op_tok.pos })
@@ -187,20 +196,32 @@ let binop t ast_op =
 let parse_additive = binop Token.Plus Ast.Add <|> binop Token.Minus Ast.Sub
 let parse_multiplicative = binop Token.Mult Ast.Mul <|> binop Token.Div Ast.Div
 
+let parse_relational =
+  binop Token.Lt Ast.Lt <|> binop Token.Gt Ast.Gt <|> binop Token.Le Ast.Le
+  <|> binop Token.Ge Ast.Ge
+
+let parse_eq = binop Token.Eq Ast.Eq <|> binop Token.Ne Ast.Ne
+let parse_and = binop Token.And Ast.And
+let parse_or = binop Token.And Ast.And
+
 let rec parse_prim =
   Parser
     (fun inp ->
-      unwrap (with_pos (parse_intlit <|> parse_id) <|> parens parse_expr) inp)
+      unwrap
+        (with_pos (parse_intlit <|> parse_id <|> parse_boollit)
+        <|> parens parse_expr)
+        inp)
 
 and parse_unexp =
   Parser
     (fun inp ->
       unwrap
         (parse_prim
-        <|>
-        let* minus = tok Token.Minus in
-        let+ prim = parse_prim in
-        Ast.{ node = Ast.UnaryMinus prim; pos = minus.pos })
+        <|> let* op = tok Token.Minus <|> tok Token.Not in
+            let+ prim = parse_unexp in
+            if op.kind = Token.Minus then
+              Ast.{ node = Ast.UnaryMinus prim; pos = op.pos }
+            else Ast.{ node = Ast.UnaryNot prim; pos = op.pos })
         inp)
 
 and parse_multexp =
@@ -209,11 +230,25 @@ and parse_multexp =
 and parse_addexp =
   Parser (fun inp -> unwrap (chainl1 parse_multexp parse_additive) inp)
 
+and parse_relexp =
+  Parser (fun inp -> unwrap (chainl1 parse_addexp parse_relational) inp)
+
+and parse_eqexp = Parser (fun inp -> unwrap (chainl1 parse_relexp parse_eq) inp)
+
+and parse_andexp =
+  Parser (fun inp -> unwrap (chainl1 parse_eqexp parse_and) inp)
+
+and parse_orexp = Parser (fun inp -> unwrap (chainl1 parse_andexp parse_or) inp)
+
 (* NOTE questionable*)
 and parse_expr =
   Parser
     (fun inp ->
-      unwrap (recover parse_addexp [ Token.Semi; Token.EOF ] err_expr) inp)
+      unwrap
+        (recover parse_orexp
+           [ Token.Semi; Token.RParen; Token.RBrace; Token.EOF ]
+           err_expr)
+        inp)
 
 let parse_expr_stmt =
   let+ expr = parse_expr <* tok Token.Semi in
@@ -241,10 +276,66 @@ let parse_ret_stmt =
   let+ expr = tok Token.Ret *> parse_expr <* tok Token.Semi in
   Ast.Ret expr
 
-let parse_stmt_rule =
-  parse_assign_stmt
-  <|> with_pos
-        (parse_ret_stmt <|> parse_decl_stmt <|> parse_expr_stmt <?> "statement")
+let parse_break_stmt =
+  let+ _ = tok Token.Break <* tok Token.Semi in
+  Ast.Break
 
-let parse_stmt = recover parse_stmt_rule [ Token.Semi; Token.EOF ] err_stmt
+let parse_continue_stmt =
+  let+ _ = tok Token.Cont <* tok Token.Semi in
+  Ast.Continue
+
+let rec parse_if_stmt =
+  Parser
+    (fun inp ->
+      unwrap
+        (let* _ = tok Token.If in
+         let* cond = parens parse_expr in
+         let* then_stmt = parse_stmt in
+         let+ else_stmt =
+           (let* _ = tok Token.Else in
+            let+ s = parse_stmt in
+            Some s)
+           <|> result None
+         in
+         Ast.If (cond, then_stmt, else_stmt))
+        inp)
+
+and parse_while_stmt =
+  Parser
+    (fun inp ->
+      unwrap
+        (let* _ = tok Token.While in
+         let* cond = parens parse_expr in
+         let+ body = parse_stmt in
+         Ast.While (cond, body))
+        inp)
+
+and parse_block =
+  Parser
+    (fun inp ->
+      unwrap
+        (let+ stmts = bracket Token.LBrace (many parse_stmt) Token.RBrace in
+         Ast.Block stmts)
+        inp)
+
+and parse_stmt_rule =
+  Parser
+    (fun inp ->
+      unwrap
+        (parse_assign_stmt
+        <|> with_pos
+              (parse_ret_stmt <|> parse_decl_stmt <|> parse_if_stmt
+             <|> parse_while_stmt <|> parse_break_stmt <|> parse_continue_stmt
+             <|> parse_block <|> parse_expr_stmt <?> "statement"))
+        inp)
+
+and parse_stmt =
+  Parser
+    (fun inp ->
+      unwrap
+        (recover parse_stmt_rule
+           [ Token.Semi; Token.RBrace; Token.EOF ]
+           err_stmt)
+        inp)
+
 let rec parse_program = many parse_stmt <* tok Token.EOF
