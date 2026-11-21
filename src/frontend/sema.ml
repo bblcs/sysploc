@@ -6,17 +6,17 @@ type env = Ast.decltype Env.t
 
 let rec pass_expr env expr =
   match expr.Ast.node with
-  | Ast.IntLit _ | Ast.ErrorExpr -> []
+  | Ast.IntLit _ | Ast.BoolLit _ | Ast.ErrorExpr -> []
   | Ast.Id name -> (
       match Env.find_opt name env with
       | Some _ -> []
       | None ->
           [ { Parser.pos = expr.pos; msg = "Undeclared identifier: " ^ name } ])
-  | Ast.UnaryMinus e -> pass_expr env e
+  | Ast.UnaryMinus e | Ast.UnaryNot e -> pass_expr env e
   | Ast.BinOp (lhs, _, rhs) -> pass_expr env lhs @ pass_expr env rhs
 
 let pass_stmt env stmts =
-  let rec walk stmts env errors =
+  let rec walk stmts env loops errors =
     match stmts with
     | [] -> errors
     | (stmt : Ast.statement) :: rest -> (
@@ -28,13 +28,13 @@ let pass_stmt env stmts =
                 [
                   {
                     Parser.pos = stmt.pos;
-                    msg = "Variable redefenition: " ^ name.node;
+                    msg = "Variable redefinition: " ^ name.node;
                   };
                 ]
               else []
             in
             let next_env = Env.add name.node decl_type env in
-            walk rest next_env (errors @ expr_errs @ decl_errs)
+            walk rest next_env loops (errors @ expr_errs @ decl_errs)
         | Ast.Assignment (name, expr) ->
             let expr_errs = pass_expr env expr in
             let assign_errs =
@@ -55,13 +55,41 @@ let pass_stmt env stmts =
                   ]
               | Some Ast.Mut -> []
             in
-            walk rest env (errors @ expr_errs @ assign_errs)
+            walk rest env loops (errors @ expr_errs @ assign_errs)
         | Ast.Ret expr | Ast.Expr expr ->
-            let expr_errors = pass_expr env expr in
-            walk rest env (errors @ expr_errors)
-        | Ast.ErrorStmt -> walk rest env errors)
+            walk rest env loops (errors @ pass_expr env expr)
+        | Ast.Block body ->
+            let block_errs = walk body env loops [] in
+            walk rest env loops (errors @ block_errs)
+        | Ast.If (cond, then_bod, else_bod) ->
+            let cond_errs = pass_expr env cond in
+            let then_errs = walk [ then_bod ] env loops [] in
+            let else_errs =
+              match else_bod with
+              | Some e -> walk [ e ] env loops []
+              | None -> []
+            in
+            walk rest env loops (errors @ cond_errs @ then_errs @ else_errs)
+        | Ast.While (cond, body) ->
+            let cond_errs = pass_expr env cond in
+            let body_errs = walk [ body ] env (loops + 1) [] in
+            walk rest env loops (errors @ cond_errs @ body_errs)
+        | Ast.Break ->
+            let errs =
+              if loops > 0 then []
+              else [ { Parser.pos = stmt.pos; msg = "Break outside of loop" } ]
+            in
+            walk rest env loops (errors @ errs)
+        | Ast.Continue ->
+            let errs =
+              if loops > 0 then []
+              else
+                [ { Parser.pos = stmt.pos; msg = "Continue outside of loop" } ]
+            in
+            walk rest env loops (errors @ errs)
+        | Ast.ErrorStmt -> walk rest env loops errors)
   in
-  walk stmts env []
+  walk stmts env 0 []
 
 let pass_at_least_one_statement = function
   | [] ->

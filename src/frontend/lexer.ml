@@ -57,6 +57,13 @@ let lex_sym lex =
     | "val" -> Token.Val
     | "var" -> Token.Var
     | "return" -> Token.Ret
+    | "if" -> Token.If
+    | "else" -> Token.Else
+    | "while" -> Token.While
+    | "break" -> Token.Break
+    | "continue" -> Token.Cont
+    | "true" -> Token.True
+    | "false" -> Token.False
     | _ -> Token.Id s
   in
   (tok, new_lex)
@@ -84,11 +91,30 @@ let rec next lex =
   let yield typ ?(next_lex = advance skipped) () =
     (Token.{ kind = typ; pos = skipped.pos }, next_lex)
   in
+  let yield_if_next exp match_tok default_tok =
+    let next_lex = advance skipped in
+    match peek next_lex with
+    | Some c when c = exp -> yield match_tok ~next_lex:(advance next_lex) ()
+    | _ -> yield default_tok ()
+  in
+  let require_next exp match_tok bad =
+    let next_lex = advance skipped in
+    match peek next_lex with
+    | Some c when c = exp -> yield match_tok ~next_lex:(advance next_lex) ()
+    | _ -> yield (Token.ErrInvalidChar bad) ()
+  in
   match peek skipped with
   | None -> (Token.{ kind = Token.EOF; pos = skipped.pos }, skipped)
   | Some '(' -> yield Token.LParen ()
   | Some ')' -> yield Token.RParen ()
-  | Some '=' -> yield Token.Assign ()
+  | Some '{' -> yield Token.LBrace ()
+  | Some '}' -> yield Token.RBrace ()
+  | Some '=' -> yield_if_next '=' Token.Eq Token.Assign
+  | Some '!' -> yield_if_next '=' Token.Ne Token.Not
+  | Some '<' -> yield_if_next '=' Token.Le Token.Lt
+  | Some '>' -> yield_if_next '=' Token.Ge Token.Gt
+  | Some '&' -> require_next '&' Token.And '&'
+  | Some '|' -> require_next '|' Token.Or '|'
   | Some ';' -> yield Token.Semi ()
   | Some '+' -> yield Token.Plus ()
   | Some '-' -> yield Token.Minus ()

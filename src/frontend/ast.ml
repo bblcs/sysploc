@@ -1,17 +1,27 @@
 type 'a ast_node = { node : 'a; pos : Loc.pos }
 type ident = string ast_node
-type binop = Add | Sub | Mul | Div
+type binop = Add | Sub | Mul | Div | And | Or | Eq | Ne | Lt | Gt | Le | Ge
 
 let string_of_binop = function
   | Add -> "+"
   | Sub -> "-"
   | Mul -> "*"
   | Div -> "/"
+  | And -> "&&"
+  | Or -> "||"
+  | Eq -> "=="
+  | Ne -> "!="
+  | Lt -> "<"
+  | Gt -> ">"
+  | Le -> "<="
+  | Ge -> ">="
 
 type expr_node =
   | IntLit of int64
+  | BoolLit of bool
   | Id of string
   | UnaryMinus of expr
+  | UnaryNot of expr
   | BinOp of expr * binop * expr
   | ErrorExpr
 
@@ -26,6 +36,11 @@ type statement_node =
   | Decl of ident * expr * decltype
   | Assignment of ident * expr
   | Expr of expr
+  | Block of statement list
+  | If of expr * statement * statement option
+  | While of expr * statement
+  | Break
+  | Continue
   | ErrorStmt
 
 and statement = statement_node ast_node
@@ -38,16 +53,21 @@ let rec str_expr (expr : expr) ident =
   let space = repeat "  " ident in
   match expr.node with
   | IntLit n -> Format.sprintf "%sIntLit(%Ld)\n" space n
+  | BoolLit b ->
+      let msg = if b then "true" else "false" in
+      Format.sprintf "%sBoolLit(%s)\n" space msg
   | Id s -> Format.sprintf "%sId(%s)\n" space s
   | UnaryMinus e ->
       Format.sprintf "%sUnaryMinus of\n%s" space (str_expr e (ident + 1))
+  | UnaryNot e ->
+      Format.sprintf "%sUnaryNot of\n%s" space (str_expr e (ident + 1))
   | BinOp (lhs, op, rhs) ->
       Format.sprintf "%sBinOp %s of\n%s%s" space (string_of_binop op)
         (str_expr lhs (ident + 1))
         (str_expr rhs (ident + 1))
   | ErrorExpr -> Format.sprintf "%sErrorExpr\n" space
 
-let str_stmt stmt ident =
+let rec str_stmt stmt ident =
   let space = repeat "  " ident in
   match stmt.node with
   | Ret e -> Format.sprintf "%sRet of\n%s" space (str_expr e (ident + 1))
@@ -60,6 +80,25 @@ let str_stmt stmt ident =
         (str_expr e (ident + 1))
   | Expr e ->
       Format.sprintf "%sExprStatement of\n%s" space (str_expr e (ident + 1))
+  | Block body ->
+      Format.sprintf "%sBlock of\n%s" space
+        (String.concat "\n" (List.map (fun st -> str_stmt st (ident + 1)) body))
+  | If (cond, mainbod, elsebod) ->
+      let else_str =
+        match elsebod with
+        | Some eb -> Format.sprintf "%sElse\n%s" space (str_stmt eb (ident + 1))
+        | None -> ""
+      in
+      Format.sprintf "%sIf\n%s%s%s" space
+        (str_expr cond (ident + 1))
+        (str_stmt mainbod (ident + 1))
+        else_str
+  | While (cond, body) ->
+      Format.sprintf "%sWhile\n%s%s" space
+        (str_expr cond (ident + 1))
+        (str_stmt body (ident + 1))
+  | Break -> Format.sprintf "%sBreak\n" space
+  | Continue -> Format.sprintf "%sContinue\n" space
   | ErrorStmt -> Format.sprintf "%sErrorStmt\n" space
 
 let print_program prog =
@@ -82,15 +121,19 @@ let rec expr_to_yojson expr =
   | IntLit n ->
       json_node expr.pos "IntLiteral" []
         [ ("value", `Intlit (Int64.to_string n)) ]
+  | BoolLit b -> json_node expr.pos "BoolLiteral" [] [ ("value", `Bool b) ]
   | Id s -> json_node expr.pos "Ident" [] [ ("value", `String s) ]
-  | UnaryMinus e -> json_node expr.pos "Unary" [ expr_to_yojson e ] []
+  | UnaryMinus e ->
+      json_node expr.pos "Unary" [ expr_to_yojson e ] [ ("value", `String "-") ]
+  | UnaryNot e ->
+      json_node expr.pos "Unary" [ expr_to_yojson e ] [ ("value", `String "!") ]
   | BinOp (lhs, op, rhs) ->
       json_node expr.pos "BinOp"
         [ expr_to_yojson lhs; expr_to_yojson rhs ]
         [ ("value", `String (string_of_binop op)) ]
   | ErrorExpr -> json_node expr.pos "Error" [] []
 
-let stmt_to_yojson stmt =
+let rec stmt_to_yojson stmt =
   match stmt.node with
   | Ret e -> json_node stmt.pos "Return" [ expr_to_yojson e ] []
   | Decl (id, e, dt) ->
@@ -101,6 +144,19 @@ let stmt_to_yojson stmt =
   | Assignment (id, e) ->
       json_node stmt.pos "Assign" [ ident_to_yojson id; expr_to_yojson e ] []
   | Expr e -> expr_to_yojson e
+  | Block body -> json_node stmt.pos "Block" (List.map stmt_to_yojson body) []
+  | If (cond, mainbod, elsebod) ->
+      let elems =
+        match elsebod with
+        | Some eb ->
+            [ expr_to_yojson cond; stmt_to_yojson mainbod; stmt_to_yojson eb ]
+        | None -> [ expr_to_yojson cond; stmt_to_yojson mainbod ]
+      in
+      json_node stmt.pos "If" elems []
+  | While (cond, body) ->
+      json_node stmt.pos "While" [ expr_to_yojson cond; stmt_to_yojson body ] []
+  | Break -> json_node stmt.pos "Break" [] []
+  | Continue -> json_node stmt.pos "Continue" [] []
   | ErrorStmt -> json_node stmt.pos "Error" [] []
 
 let program_to_yojson prog =
