@@ -18,8 +18,11 @@ type kind =
   | And
   | Or
   | Not
+  | Comma
   | Val
   | Var
+  | Def
+  | Extern
   | Ret
   | If
   | Else
@@ -54,8 +57,11 @@ let kind_to_json_pair = function
   | And -> ("AND", "&&")
   | Or -> ("OR", "||")
   | Not -> ("NOT", "!")
+  | Comma -> ("COMMA", ",")
   | Val -> ("VAL", "val")
   | Var -> ("VAR", "var")
+  | Def -> ("DEF", "def")
+  | Extern -> ("EXTERN", "extern")
   | Ret -> ("RETURN", "return")
   | If -> ("IF", "if")
   | Else -> ("ELSE", "else")
@@ -93,8 +99,11 @@ let show t =
   | And -> "And"
   | Or -> "Or"
   | Not -> "Not"
+  | Comma -> "Comma"
   | Val -> "Val"
   | Var -> "Var"
+  | Def -> "Def"
+  | Extern -> "Extern"
   | Ret -> "Ret"
   | If -> "If"
   | Else -> "Else"
