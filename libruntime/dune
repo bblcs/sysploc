@@ -1,0 +1,12 @@
+(rule
+ (targets libsplruntime.a)
+ (deps spl_runtime.c spl_runtime.h)
+ (mode promote)
+ (action
+  (progn
+   (run clang -O2 -c spl_runtime.c -o spl_runtime.o)
+   (run ar rcs libsplruntime.a spl_runtime.o))))
+
+(alias
+ (name default)
+ (deps libsplruntime.a))

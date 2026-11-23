@@ -1,5 +1,6 @@
 type 'a ast_node = { node : 'a; pos : Loc.pos }
 type ident = string ast_node
+type param = ident
 type binop = Add | Sub | Mul | Div | And | Or | Eq | Ne | Lt | Gt | Le | Ge
 
 let string_of_binop = function
@@ -23,6 +24,7 @@ type expr_node =
   | UnaryMinus of expr
   | UnaryNot of expr
   | BinOp of expr * binop * expr
+  | Call of expr * expr list
   | ErrorExpr
 
 and expr = expr_node ast_node
@@ -45,7 +47,14 @@ type statement_node =
 
 and statement = statement_node ast_node
 
-type program = statement list
+type top_decl_node =
+  | ExternDecl of ident * param list
+  | FuncDecl of ident * param list * statement
+  | ErrorDecl
+
+and top_decl = top_decl_node ast_node
+
+type program = top_decl list
 
 let rec repeat s n = if n = 0 then s else s ^ repeat s (n - 1)
 
@@ -65,6 +74,11 @@ let rec str_expr (expr : expr) ident =
       Format.sprintf "%sBinOp %s of\n%s%s" space (string_of_binop op)
         (str_expr lhs (ident + 1))
         (str_expr rhs (ident + 1))
+  | Call (callee, args) ->
+      let args =
+        String.concat "" (List.map (fun a -> str_expr a (ident + 1)) args)
+      in
+      Format.sprintf "%sCall of\n%s%s" space (str_expr callee (ident + 1)) args
   | ErrorExpr -> Format.sprintf "%sErrorExpr\n" space
 
 let rec str_stmt stmt ident =
@@ -101,9 +115,22 @@ let rec str_stmt stmt ident =
   | Continue -> Format.sprintf "%sContinue\n" space
   | ErrorStmt -> Format.sprintf "%sErrorStmt\n" space
 
+let str_top_decl decl ident =
+  let space = repeat "  " ident in
+  let params_str params =
+    String.concat ", " (List.map (fun (p : param) -> p.node) params)
+  in
+  match decl.node with
+  | ExternDecl (name, params) ->
+      Format.sprintf "%sExternDecl %s(%s)\n" space name.node (params_str params)
+  | FuncDecl (name, params, body) ->
+      Format.sprintf "%sFuncDecl %s(%s)\n%s" space name.node (params_str params)
+        (str_stmt body (ident + 1))
+  | ErrorDecl -> Format.sprintf "%sErrorDecl\n" space
+
 let print_program prog =
   print_endline "Program of";
-  List.iter (fun stmt -> print_string (str_stmt stmt 0)) prog
+  List.iter (fun decl -> print_string (str_top_decl decl 0)) prog
 
 let json_node pos kind elems extras =
   `Assoc
@@ -115,6 +142,8 @@ let json_node pos kind elems extras =
 
 let ident_to_yojson id =
   json_node id.pos "Ident" [] [ ("value", `String id.node) ]
+
+let param_to_yojson (p : param) = ident_to_yojson p
 
 let rec expr_to_yojson expr =
   match expr.node with
@@ -131,6 +160,10 @@ let rec expr_to_yojson expr =
       json_node expr.pos "BinOp"
         [ expr_to_yojson lhs; expr_to_yojson rhs ]
         [ ("value", `String (string_of_binop op)) ]
+  | Call (callee, args) ->
+      json_node expr.pos "Call"
+        (expr_to_yojson callee :: List.map expr_to_yojson args)
+        []
   | ErrorExpr -> json_node expr.pos "Error" [] []
 
 let rec stmt_to_yojson stmt =
@@ -159,12 +192,22 @@ let rec stmt_to_yojson stmt =
   | Continue -> json_node stmt.pos "Continue" [] []
   | ErrorStmt -> json_node stmt.pos "Error" [] []
 
+let top_decl_to_yojson decl =
+  match decl.node with
+  | ExternDecl (name, params) ->
+      json_node decl.pos "ExternDecl"
+        (ident_to_yojson name :: List.map param_to_yojson params)
+        []
+  | FuncDecl (name, params, body) ->
+      json_node decl.pos "FuncDecl"
+        ((ident_to_yojson name :: List.map param_to_yojson params)
+        @ [ stmt_to_yojson body ])
+        []
+  | ErrorDecl -> json_node decl.pos "Error" [] []
+
 let program_to_yojson prog =
-  let stmts_json = List.map stmt_to_yojson prog in
+  let decls_json = List.map top_decl_to_yojson prog in
   let pos =
-    match prog with
-    | [] -> Loc.{ line = 0; col = 0 }
-    | start :: _ -> (
-        match start.node with Assignment (id, _) -> id.pos | _ -> start.pos)
+    match prog with [] -> Loc.{ line = 0; col = 0 } | start :: _ -> start.pos
   in
-  json_node pos "Program" stmts_json []
+  json_node pos "Program" decls_json []

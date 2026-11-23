@@ -1,6 +1,7 @@
 # Build artifacts
 build/
 test/build/
+libruntime/*.a
 
 # IDE / editor
 .cache

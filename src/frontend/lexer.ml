@@ -56,6 +56,8 @@ let lex_sym lex =
     match s with
     | "val" -> Token.Val
     | "var" -> Token.Var
+    | "def" -> Token.Def
+    | "extern" -> Token.Extern
     | "return" -> Token.Ret
     | "if" -> Token.If
     | "else" -> Token.Else
@@ -115,6 +117,7 @@ let rec next lex =
   | Some '>' -> yield_if_next '=' Token.Ge Token.Gt
   | Some '&' -> require_next '&' Token.And '&'
   | Some '|' -> require_next '|' Token.Or '|'
+  | Some ',' -> yield Token.Comma ()
   | Some ';' -> yield Token.Semi ()
   | Some '+' -> yield Token.Plus ()
   | Some '-' -> yield Token.Minus ()

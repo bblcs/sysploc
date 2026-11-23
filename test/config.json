@@ -27,7 +27,7 @@
       ]
     },
     "compiler": {
-      "cmd": ["bash", "-c", "{root}/_build/default/src/driver/main.exe -o /tmp/out.ll {input} && clang /tmp/out.ll -o {exe} -Wno-override-module"]
+      "cmd": ["bash", "-c", "{root}/_build/default/src/driver/main.exe -o /tmp/out.ll {input} && clang /tmp/out.ll -L./libruntime -lsplruntime -o {exe} -Wno-override-module"]
     },
     "run": {
       "cmd": ["{exe}"],

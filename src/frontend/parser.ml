@@ -9,8 +9,6 @@ let eof_loc = Loc.{ line = -1; col = -1 }
 type 'a parser = Parser of (Token.t list -> 'a parse_result)
 
 let cur_pos = function [] -> eof_loc | t :: _ -> t.Token.pos
-
-(** haskell at home: *)
 let unwrap (Parser pf) inp = pf inp
 
 let error msg =
@@ -111,6 +109,13 @@ and many1 p =
   let+ rem = many p in
   fst :: rem
 
+let sep_by1 p sep =
+  let* first = p in
+  let+ rest = many (sep *> p) in
+  first :: rest
+
+let sep_by p sep = sep_by1 p sep <|> result []
+
 let recover (Parser pf) syncs sentinel_gen =
   Parser
     (fun inp ->
@@ -206,11 +211,45 @@ let rec parse_prim =
         <|> parens parse_expr)
         inp)
 
+and parse_arg =
+  Parser
+    (fun inp ->
+      unwrap
+        (recover parse_orexp
+           [ Token.Comma; Token.RParen; Token.Semi; Token.RBrace; Token.EOF ]
+           err_expr)
+        inp)
+
+and parse_arg_list =
+  Parser
+    (fun inp ->
+      unwrap
+        (tok Token.RParen *> result []
+        <|> (sep_by1 parse_arg (tok Token.Comma) <* tok Token.RParen))
+        inp)
+
+and parse_callexp =
+  Parser
+    (fun inp ->
+      unwrap
+        (let* base = parse_prim in
+         let+ calls =
+           many
+             (let* lparen = tok Token.LParen in
+              let+ args = parse_arg_list in
+              (lparen.pos, args))
+         in
+         List.fold_left
+           (fun callee (pos, args) ->
+             Ast.{ node = Ast.Call (callee, args); pos })
+           base calls)
+        inp)
+
 and parse_unexp =
   Parser
     (fun inp ->
       unwrap
-        (parse_prim
+        (parse_callexp
         <|> let* op = tok Token.Minus <|> tok Token.Not in
             let+ prim = parse_unexp in
             if op.kind = Token.Minus then
@@ -234,7 +273,6 @@ and parse_andexp =
 
 and parse_orexp = Parser (fun inp -> unwrap (chainl1 parse_andexp parse_or) inp)
 
-(* NOTE questionable*)
 and parse_expr =
   Parser
     (fun inp ->
@@ -330,10 +368,66 @@ and parse_stmt_rule =
 and parse_stmt =
   Parser
     (fun inp ->
-      unwrap
-        (recover parse_stmt_rule
-           [ Token.Semi; Token.RBrace; Token.EOF ]
-           err_stmt)
-        inp)
+      match unwrap parse_stmt_rule inp with
+      | Ok _ as ok -> ok
+      | Error e ->
+          let rec loop rem =
+            match rem with
+            | Token.{ kind = Token.Semi; pos } :: nrem ->
+                Ok (err_stmt pos, nrem, e)
+            | Token.{ kind = Token.RBrace | Token.EOF; pos } :: _ ->
+                Ok (err_stmt pos, rem, e)
+            | _ :: nrem -> loop nrem
+            | [] ->
+                Error [ { pos = eof_loc; msg = "Unexpected EOF on recovery" } ]
+          in
+          loop inp)
 
-let rec parse_program = many parse_stmt <* tok Token.EOF
+let parse_param_list =
+  bracket Token.LParen
+    (sep_by (with_pos parse_name) (tok Token.Comma))
+    Token.RParen
+
+let parse_extern_decl =
+  with_pos
+    (let* _ = tok Token.Extern in
+     let* _ = tok Token.Def in
+     let* name = with_pos parse_name in
+     let* params = parse_param_list in
+     let+ _ = tok Token.Semi in
+     Ast.ExternDecl (name, params))
+
+let parse_func_decl =
+  with_pos
+    (let* _ = tok Token.Def in
+     let* name = with_pos parse_name in
+     let* params = parse_param_list in
+     let+ body = with_pos parse_block in
+     Ast.FuncDecl (name, params, body))
+
+let parse_top_decl =
+  let rule =
+    parse_extern_decl <|> parse_func_decl <?> "top-level declaration"
+  in
+  Parser
+    (fun inp ->
+      match inp with
+      | [] | Token.{ kind = Token.EOF; _ } :: _ ->
+          Error [ { pos = cur_pos inp; msg = "Unexpected EOF" } ]
+      | _ -> (
+          match unwrap rule inp with
+          | Ok _ as ok -> ok
+          | Error e ->
+              let rec sync = function
+                | [] -> ([], eof_loc)
+                | Token.{ kind = Token.Def | Token.Extern | Token.EOF; pos }
+                  :: _ as rem ->
+                    (rem, pos)
+                | _ :: rem -> sync rem
+              in
+              let rem, pos =
+                match inp with _ :: tl -> sync tl | [] -> ([], eof_loc)
+              in
+              Ok (Ast.{ node = Ast.ErrorDecl; pos }, rem, e)))
+
+let parse_program = many parse_top_decl <* tok Token.EOF

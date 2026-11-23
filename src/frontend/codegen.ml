@@ -2,15 +2,23 @@ open Llvm
 module Env = Map.Make (String)
 
 type env = llvalue Env.t
-type t = { context : llcontext; the_module : llmodule; builder : llbuilder }
+type func_entry = llvalue * lltype
 
-let init module_name =
-  let context = global_context () in
-  let the_module = create_module context module_name in
-  let builder = builder context in
-  { context; the_module; builder }
+type t = {
+  context : llcontext;
+  the_module : llmodule;
+  builder : llbuilder;
+  funcs : func_entry Env.t;
+}
 
 type loop_ctx = { cond_bb : llbasicblock; end_bb : llbasicblock }
+
+let llvm_func_name name = if name = "main" then "__sysploc_main" else name
+
+let build_entry_alloca state func name =
+  let entry_bb = entry_block func in
+  let tmp_builder = builder_at state.context (instr_begin entry_bb) in
+  build_alloca (i64_type state.context) name tmp_builder
 
 let rec codegen_expr state env (expr : Ast.expr) =
   let i64_t = i64_type state.context in
@@ -20,7 +28,7 @@ let rec codegen_expr state env (expr : Ast.expr) =
   | Id name -> (
       match Env.find_opt name env with
       | Some p -> build_load i64_t p name state.builder
-      | None -> failwith ("undefined variable " ^ name))
+      | None -> const_int i64_t 0)
   | UnaryMinus e ->
       let e_val = codegen_expr state env e in
       build_neg e_val "" state.builder
@@ -90,122 +98,182 @@ let rec codegen_expr state env (expr : Ast.expr) =
                 (build_icmp Icmp.Sge lhs_val rhs_val "" state.builder)
                 i64_t "" state.builder
           | _ -> failwith "unreachable"))
-  | ErrorExpr -> failwith "cannot codegen ErrorExpr"
+  | Call (callee, args) -> (
+      match callee.node with
+      | Id name -> (
+          match Env.find_opt name state.funcs with
+          | Some (callee_f, callee_t) ->
+              let arg_vals =
+                args |> List.map (codegen_expr state env) |> Array.of_list
+              in
+              build_call callee_t callee_f arg_vals "" state.builder
+          | None -> const_int i64_t 0)
+      | _ -> const_int i64_t 0)
+  | ErrorExpr -> const_int i64_t 0
 
 let rec codegen_stmt state env loop_ctx (stmt : Ast.statement) =
-  let i64_t = i64_type state.context in
-  match stmt.node with
-  | Decl (id, init_expr, _) ->
-      let var_name = id.node in
-      let init_val = codegen_expr state env init_expr in
-      let alloca = build_alloca i64_t var_name state.builder in
-      ignore (build_store init_val alloca state.builder);
-      Env.add var_name alloca env
-  | Assignment (id, e) ->
-      let new_val = codegen_expr state env e in
-      let var_ptr = Env.find id.node env in
-      ignore (build_store new_val var_ptr state.builder);
-      env
-  | Ret e ->
-      let ret_val = codegen_expr state env e in
-      ignore (build_ret ret_val state.builder);
-      env
-  | Expr e ->
-      ignore (codegen_expr state env e);
-      env
-  | Block body ->
-      ignore
-        (List.fold_left (fun e s -> codegen_stmt state e loop_ctx s) env body);
-      env
-  | If (cond, then_bod, else_bod) ->
-      let cond_val = codegen_expr state env cond in
-      let zero = const_int i64_t 0 in
-      let cond_bool =
-        build_icmp Icmp.Ne cond_val zero "if_cond" state.builder
-      in
+  if block_terminator (insertion_block state.builder) <> None then env
+  else
+    let i64_t = i64_type state.context in
+    match stmt.node with
+    | Decl (id, init_expr, _) ->
+        let var_name = id.node in
+        let init_val = codegen_expr state env init_expr in
+        let func = block_parent (insertion_block state.builder) in
+        let alloca = build_entry_alloca state func var_name in
+        ignore (build_store init_val alloca state.builder);
+        Env.add var_name alloca env
+    | Assignment (id, e) ->
+        let new_val = codegen_expr state env e in
+        (match Env.find_opt id.node env with
+        | Some var_ptr -> ignore (build_store new_val var_ptr state.builder)
+        | None -> ());
+        env
+    | Ret e ->
+        let ret_val = codegen_expr state env e in
+        ignore (build_ret ret_val state.builder);
+        env
+    | Expr e ->
+        ignore (codegen_expr state env e);
+        env
+    | Block body ->
+        ignore
+          (List.fold_left (fun e s -> codegen_stmt state e loop_ctx s) env body);
+        env
+    | If (cond, then_bod, else_bod) ->
+        let cond_val = codegen_expr state env cond in
+        let zero = const_int i64_t 0 in
+        let cond_bool =
+          build_icmp Icmp.Ne cond_val zero "if_cond" state.builder
+        in
 
-      let func = block_parent (insertion_block state.builder) in
-      let then_bb = append_block state.context "then" func in
-      let merge_bb = append_block state.context "if_merge" func in
-      let else_bb =
-        match else_bod with
-        | Some _ -> append_block state.context "else" func
-        | None -> merge_bb
-      in
+        let func = block_parent (insertion_block state.builder) in
+        let then_bb = append_block state.context "then" func in
+        let merge_bb = append_block state.context "if_merge" func in
+        let else_bb =
+          match else_bod with
+          | Some _ -> append_block state.context "else" func
+          | None -> merge_bb
+        in
 
-      ignore (build_cond_br cond_bool then_bb else_bb state.builder);
+        ignore (build_cond_br cond_bool then_bb else_bb state.builder);
 
-      position_at_end then_bb state.builder;
-      ignore (codegen_stmt state env loop_ctx then_bod);
-      if block_terminator (insertion_block state.builder) = None then
-        ignore (build_br merge_bb state.builder);
+        position_at_end then_bb state.builder;
+        ignore (codegen_stmt state env loop_ctx then_bod);
+        if block_terminator (insertion_block state.builder) = None then
+          ignore (build_br merge_bb state.builder);
 
-      (match else_bod with
-      | Some e ->
-          position_at_end else_bb state.builder;
-          ignore (codegen_stmt state env loop_ctx e);
-          if block_terminator (insertion_block state.builder) = None then
-            ignore (build_br merge_bb state.builder)
-      | None -> ());
+        (match else_bod with
+        | Some e ->
+            position_at_end else_bb state.builder;
+            ignore (codegen_stmt state env loop_ctx e);
+            if block_terminator (insertion_block state.builder) = None then
+              ignore (build_br merge_bb state.builder)
+        | None -> ());
 
-      position_at_end merge_bb state.builder;
-      env
-  | While (cond, body) ->
-      let func = block_parent (insertion_block state.builder) in
-      let cond_bb = append_block state.context "while_cond" func in
-      let body_bb = append_block state.context "while_body" func in
-      let end_bb = append_block state.context "while_end" func in
+        position_at_end merge_bb state.builder;
+        env
+    | While (cond, body) ->
+        let func = block_parent (insertion_block state.builder) in
+        let cond_bb = append_block state.context "while_cond" func in
+        let body_bb = append_block state.context "while_body" func in
+        let end_bb = append_block state.context "while_end" func in
 
-      ignore (build_br cond_bb state.builder);
-      position_at_end cond_bb state.builder;
-
-      let cond_val = codegen_expr state env cond in
-      let zero = const_int i64_t 0 in
-      let cond_bool =
-        build_icmp Icmp.Ne cond_val zero "while_cond_bool" state.builder
-      in
-      ignore (build_cond_br cond_bool body_bb end_bb state.builder);
-
-      position_at_end body_bb state.builder;
-      let new_loop_ctx = Some { cond_bb; end_bb } in
-      ignore (codegen_stmt state env new_loop_ctx body);
-      if block_terminator (insertion_block state.builder) = None then
         ignore (build_br cond_bb state.builder);
+        position_at_end cond_bb state.builder;
 
-      position_at_end end_bb state.builder;
-      env
-  | Break ->
-      (match loop_ctx with
-      | Some ctx -> ignore (build_br ctx.end_bb state.builder)
-      | None -> ());
-      env
-  | Continue ->
-      (match loop_ctx with
-      | Some ctx -> ignore (build_br ctx.cond_bb state.builder)
-      | None -> ());
-      env
-  | ErrorStmt -> failwith "cannot codegen ErrorStmt"
+        let cond_val = codegen_expr state env cond in
+        let zero = const_int i64_t 0 in
+        let cond_bool =
+          build_icmp Icmp.Ne cond_val zero "while_cond_bool" state.builder
+        in
+        ignore (build_cond_br cond_bool body_bb end_bb state.builder);
+
+        position_at_end body_bb state.builder;
+        let new_loop_ctx = Some { cond_bb; end_bb } in
+        ignore (codegen_stmt state env new_loop_ctx body);
+        if block_terminator (insertion_block state.builder) = None then
+          ignore (build_br cond_bb state.builder);
+
+        position_at_end end_bb state.builder;
+        env
+    | Break ->
+        (match loop_ctx with
+        | Some ctx -> ignore (build_br ctx.end_bb state.builder)
+        | None -> ());
+        env
+    | Continue ->
+        (match loop_ctx with
+        | Some ctx -> ignore (build_br ctx.cond_bb state.builder)
+        | None -> ());
+        env
+    | ErrorStmt -> env
+
+let declare_top_decls context the_module (prog : Ast.program) =
+  let i64_t = i64_type context in
+  List.fold_left
+    (fun funcs (decl : Ast.top_decl) ->
+      match decl.node with
+      | Ast.ExternDecl (name, params) ->
+          let param_ts = Array.make (List.length params) i64_t in
+          let fn_t = function_type i64_t param_ts in
+          let fn_v = declare_function name.node fn_t the_module in
+          Env.add name.node (fn_v, fn_t) funcs
+      | Ast.FuncDecl (name, params, _) ->
+          let param_ts = Array.make (List.length params) i64_t in
+          let fn_t = function_type i64_t param_ts in
+          let ir_name = llvm_func_name name.node in
+          let fn_v = declare_function ir_name fn_t the_module in
+          Env.add name.node (fn_v, fn_t) funcs
+      | Ast.ErrorDecl -> funcs)
+    Env.empty prog
+
+let codegen_func state (decl : Ast.top_decl) =
+  match decl.node with
+  | Ast.ExternDecl _ | Ast.ErrorDecl -> ()
+  | Ast.FuncDecl (name, params, body) ->
+      let func, _ = Env.find name.node state.funcs in
+      let entry = append_block state.context "entry" func in
+      position_at_end entry state.builder;
+      let init_env =
+        params
+        |> List.mapi (fun i p -> (i, p))
+        |> List.fold_left
+             (fun env (i, (p : Ast.param)) ->
+               let arg_val = param func i in
+               set_value_name p.node arg_val;
+               let alloca = build_entry_alloca state func (p.node ^ ".addr") in
+               ignore (build_store arg_val alloca state.builder);
+               Env.add p.node alloca env)
+             Env.empty
+      in
+      ignore (codegen_stmt state init_env None body);
+      if block_terminator (insertion_block state.builder) = None then
+        ignore (build_unreachable state.builder)
 
 let codegen_program (prog : Ast.program) =
-  let state = init "main" in
-  let i32_t = i32_type state.context in
-  let i64_t = i64_type state.context in
-  let main_t = function_type i64_t [||] in
-  let main_f = declare_function "__sysploc_main" main_t state.the_module in
-  let entry = append_block state.context "entry" main_f in
-  position_at_end entry state.builder;
-  let empty_env = Env.empty in
-  let _final_env =
-    List.fold_left (fun e s -> codegen_stmt state e None s) empty_env prog
-  in
-  let cur_block = insertion_block state.builder in
-  if block_terminator cur_block = None then
-    ignore (build_ret (const_int i32_t 0) state.builder);
-  let c_main_t = function_type i32_t [||] in
-  let c_main_f = declare_function "main" c_main_t state.the_module in
-  let c_main_entry = append_block state.context "entry" c_main_f in
-  position_at_end c_main_entry state.builder;
-  let user_ret_val = build_call main_t main_f [||] "user_ret" state.builder in
-  let trunc_val = build_trunc user_ret_val i32_t "exit_code" state.builder in
-  ignore (build_ret trunc_val state.builder);
+  let context = global_context () in
+  let the_module = create_module context "main" in
+  let builder = builder context in
+  let funcs = declare_top_decls context the_module prog in
+  let state = { context; the_module; builder; funcs } in
+
+  List.iter (codegen_func state) prog;
+
+  (match Env.find_opt "main" state.funcs with
+  | Some (main_f, main_t) ->
+      let i32_t = i32_type state.context in
+      let c_main_t = function_type i32_t [||] in
+      let c_main_f = declare_function "main" c_main_t state.the_module in
+      let c_main_entry = append_block state.context "entry" c_main_f in
+      position_at_end c_main_entry state.builder;
+      let user_ret_val =
+        build_call main_t main_f [||] "user_ret" state.builder
+      in
+      let trunc_val =
+        build_trunc user_ret_val i32_t "exit_code" state.builder
+      in
+      ignore (build_ret trunc_val state.builder)
+  | None -> ());
+
   state.the_module
